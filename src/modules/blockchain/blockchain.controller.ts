@@ -14,7 +14,7 @@ import { BlockchainService } from './blockchain.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import { UserRole } from '../auth/enums/user-role.enum';
 import {
   ContractCallDto,
   TransactionDto,
@@ -90,7 +90,7 @@ export class BlockchainController {
       }
 
       return {
-        transactionHash: receipt.transactionHash,
+        transactionHash: receipt.hash,
         blockNumber: receipt.blockNumber,
         blockHash: receipt.blockHash,
         gasUsed: receipt.gasUsed.toString(),
@@ -98,7 +98,7 @@ export class BlockchainController {
         from: receipt.from,
         to: receipt.to,
         contractAddress: receipt.contractAddress,
-        logs: receipt.logs,
+        logs: Array.from(receipt.logs),
       };
     } catch (error) {
       throw new HttpException(

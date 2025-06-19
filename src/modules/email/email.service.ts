@@ -58,7 +58,13 @@ export class EmailService {
       }).format(amount);
     });
 
-    handlebars.registerHelper('ifCond', function (v1, operator, v2, options) {
+    handlebars.registerHelper('ifCond', function (
+      this: any,
+      v1: any,
+      operator: string,
+      v2: any,
+      options: any
+    ) {
       switch (operator) {
         case '==':
           return v1 == v2 ? options.fn(this) : options.inverse(this);

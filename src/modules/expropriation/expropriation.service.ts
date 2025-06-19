@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Expropriation, ExpropriationStatus } from './entities/expropriation.entity';
@@ -10,24 +10,26 @@ import {
   ClaimCompensationDto,
   CompleteExpropriationDto,
 } from './dto/expropriation.dto';
-import { LaisService } from '../lais/lais.service';
+import { LandParcelService } from '../land-parcel/land-parcel.service';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { NotificationService } from '../notification/notification.service';
 import { PaginatedResult } from '../../shared/interfaces/paginated-result.interface';
 import { ethers } from 'ethers';
 import { ConfigService } from '@nestjs/config';
+import { NotificationType } from '../notification/enums/notification.enum';
 
 @Injectable()
 export class ExpropriationService {
-  private provider: ethers.providers.JsonRpcProvider;
+  private provider: ethers.JsonRpcProvider;
   private expropriationContract: ethers.Contract;
   private mockRWFContract: ethers.Contract;
   private landParcelNFTContract: ethers.Contract;
+  private readonly logger = new Logger(ExpropriationService.name);
 
   constructor(
     @InjectRepository(Expropriation)
     private expropriationRepository: Repository<Expropriation>,
-    private laisService: LaisService,
+    private landParcelService: LandParcelService,
     private ipfsService: IpfsService,
     private notificationService: NotificationService,
     private configService: ConfigService,
@@ -37,11 +39,13 @@ export class ExpropriationService {
 
   private async initializeContracts() {
     const rpcUrl = this.configService.get<string>('ARBITRUM_RPC_URL');
-    const expropriationAddress = this.configService.get<string>('EXPROPRIATION_COMPENSATION_MANAGER_ADDRESS');
+    const expropriationAddress = this.configService.get<string>(
+      'EXPROPRIATION_COMPENSATION_MANAGER_ADDRESS',
+    );
     const mockRWFAddress = this.configService.get<string>('MOCK_RWF_CONTRACT_ADDRESS');
     const landParcelNFTAddress = this.configService.get<string>('LAND_PARCEL_NFT_CONTRACT_ADDRESS');
 
-    this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(rpcUrl);
 
     // Initialize contract instances with ABIs
     const expropriationABI = [
@@ -72,14 +76,22 @@ export class ExpropriationService {
       'function exists(uint256 tokenId) view returns (bool)',
     ];
 
-    this.expropriationContract = new ethers.Contract(expropriationAddress, expropriationABI, this.provider);
+    this.expropriationContract = new ethers.Contract(
+      expropriationAddress,
+      expropriationABI,
+      this.provider,
+    );
     this.mockRWFContract = new ethers.Contract(mockRWFAddress, mockRWFABI, this.provider);
-    this.landParcelNFTContract = new ethers.Contract(landParcelNFTAddress, landParcelNFTABI, this.provider);
+    this.landParcelNFTContract = new ethers.Contract(
+      landParcelNFTAddress,
+      landParcelNFTABI,
+      this.provider,
+    );
   }
 
   async createExpropriation(dto: CreateExpropriationDto): Promise<Expropriation> {
     // Validate parcel exists
-    const parcel = await this.laisService.findOne(dto.parcelId);
+    const parcel = await this.landParcelService.findById(dto.parcelId);
     if (!parcel) {
       throw new NotFoundException(`Parcel with ID ${dto.parcelId} not found`);
     }
@@ -87,7 +99,9 @@ export class ExpropriationService {
     // Check if parcel exists on-chain
     const tokenExists = await this.landParcelNFTContract.exists(parseInt(dto.parcelId));
     if (!tokenExists) {
-      throw new BadRequestException(`Land parcel NFT with ID ${dto.parcelId} does not exist on-chain`);
+      throw new BadRequestException(
+        `Land parcel NFT with ID ${dto.parcelId} does not exist on-chain`,
+      );
     }
 
     // Upload expropriation documents to IPFS
@@ -117,27 +131,41 @@ export class ExpropriationService {
 
     // Flag parcel on smart contract
     try {
-      const signer = new ethers.Wallet(this.configService.get<string>('PRIVATE_KEY'), this.provider);
+      const signer = new ethers.Wallet(
+        this.configService.get<string>('PRIVATE_KEY'),
+        this.provider,
+      );
       const contractWithSigner = this.expropriationContract.connect(signer);
-      
+
       const tx = await contractWithSigner.flagParcelForExpropriation(
         parseInt(dto.parcelId),
         reasonDocumentHash || dto.reason,
-        ethers.utils.parseEther(dto.proposedCompensation.toString())
+        ethers.parseEther(dto.proposedCompensation.toString()),
       );
-      
+
       const receipt = await tx.wait();
-      
+
       // Update with transaction hash
-      savedExpropriation.flagTransactionHash = receipt.transactionHash;
+      savedExpropriation.flagTransactionHash = receipt.hash;
       await this.expropriationRepository.save(savedExpropriation);
     } catch (error) {
-      console.error('Error flagging parcel on contract:', error);
+      this.logger.error('Error flagging parcel on contract:', error);
       // Continue even if contract interaction fails
     }
 
     // Send notifications
-    await this.notificationService.notifyExpropriationFlagged(savedExpropriation);
+    await this.notificationService.create({
+      userId: parcel.ownerAddress,
+      type: NotificationType.EXPROPRIATION_FLAGGED,
+      title: 'Land Expropriation Notice',
+      message: `Your land parcel ${parcel.title} has been flagged for expropriation`,
+      data: {
+        expropriationId: savedExpropriation.id,
+        parcelId: dto.parcelId,
+        reason: dto.reason,
+        proposedCompensation: dto.proposedCompensation,
+      },
+    });
 
     return this.findOne(savedExpropriation.id);
   }
@@ -155,14 +183,14 @@ export class ExpropriationService {
     }
 
     if (filters.expropriatingAuthority) {
-      query.andWhere('expropriation.expropriatingAuthority = :authority', { 
-        authority: filters.expropriatingAuthority 
+      query.andWhere('expropriation.expropriatingAuthority = :authority', {
+        authority: filters.expropriatingAuthority,
       });
     }
 
     if (filters.currentOwnerAddress) {
-      query.andWhere('expropriation.currentOwnerAddress = :owner', { 
-        owner: filters.currentOwnerAddress 
+      query.andWhere('expropriation.currentOwnerAddress = :owner', {
+        owner: filters.currentOwnerAddress,
       });
     }
 
@@ -175,14 +203,14 @@ export class ExpropriationService {
     }
 
     if (filters.activeOnly) {
-      query.andWhere('expropriation.status IN (:...activeStatuses)', { 
-        activeStatuses: [ExpropriationStatus.FLAGGED, ExpropriationStatus.COMPENSATION_DEPOSITED] 
+      query.andWhere('expropriation.status IN (:...activeStatuses)', {
+        activeStatuses: [ExpropriationStatus.FLAGGED, ExpropriationStatus.COMPENSATION_DEPOSITED],
       });
     }
 
     if (filters.pendingCompensation) {
-      query.andWhere('expropriation.status = :flaggedStatus', { 
-        flaggedStatus: ExpropriationStatus.FLAGGED 
+      query.andWhere('expropriation.status = :flaggedStatus', {
+        flaggedStatus: ExpropriationStatus.FLAGGED,
       });
     }
 
@@ -240,10 +268,12 @@ export class ExpropriationService {
     Object.assign(expropriation, {
       ...dto,
       flaggedDate: dto.flaggedDate ? new Date(dto.flaggedDate) : expropriation.flaggedDate,
-      compensationDepositedDate: dto.compensationDepositedDate ? 
-        new Date(dto.compensationDepositedDate) : expropriation.compensationDepositedDate,
-      compensationClaimedDate: dto.compensationClaimedDate ? 
-        new Date(dto.compensationClaimedDate) : expropriation.compensationClaimedDate,
+      compensationDepositedDate: dto.compensationDepositedDate
+        ? new Date(dto.compensationDepositedDate)
+        : expropriation.compensationDepositedDate,
+      compensationClaimedDate: dto.compensationClaimedDate
+        ? new Date(dto.compensationClaimedDate)
+        : expropriation.compensationClaimedDate,
       completedDate: dto.completedDate ? new Date(dto.completedDate) : expropriation.completedDate,
     });
 
@@ -251,7 +281,17 @@ export class ExpropriationService {
 
     // Send notifications for status changes
     if (dto.status && dto.status !== expropriation.status) {
-      await this.notificationService.notifyExpropriationStatusUpdate(updatedExpropriation);
+      await this.notificationService.create({
+        userId: expropriation.currentOwnerAddress,
+        type: NotificationType.EXPROPRIATION_STATUS_UPDATE,
+        title: 'Expropriation Status Updated',
+        message: `The status of your land parcel has been updated`,
+        data: {
+          expropriationId: updatedExpropriation.id,
+          parcelId: expropriation.parcelId,
+          status: dto.status,
+        },
+      });
     }
 
     return this.findOne(updatedExpropriation.id);
@@ -261,38 +301,59 @@ export class ExpropriationService {
     const expropriation = await this.findOne(id);
 
     if (expropriation.status !== ExpropriationStatus.FLAGGED) {
-      throw new BadRequestException('Only flagged expropriations can have compensation deposited');
+      throw new BadRequestException(
+        'Compensation can only be deposited for flagged expropriations',
+      );
     }
 
     // Update expropriation record
     const updatedExpropriation = await this.update(id, {
       status: ExpropriationStatus.COMPENSATION_DEPOSITED,
       actualCompensation: dto.amount,
-      compensationDepositedDate: new Date().toISOString(),
-      depositTransactionHash: dto.transactionHash,
+      compensationDepositedDate: new Date(),
+      compensationTransactionHash: dto.transactionHash,
       notes: dto.notes,
     });
 
     // Deposit compensation on smart contract
     try {
-      const signer = new ethers.Wallet(this.configService.get<string>('PRIVATE_KEY'), this.provider);
+      const signer = new ethers.Wallet(
+        this.configService.get<string>('PRIVATE_KEY'),
+        this.provider,
+      );
       const contractWithSigner = this.expropriationContract.connect(signer);
-      
-      await contractWithSigner.depositCompensation(parseInt(expropriation.parcelId), {
-        value: ethers.utils.parseEther(dto.amount.toString())
+
+      const tx = await contractWithSigner.depositCompensation(parseInt(expropriation.parcelId), {
+        value: ethers.parseEther(dto.amount.toString()),
       });
+
+      await tx.wait();
     } catch (error) {
-      console.error('Error depositing compensation on contract:', error);
+      this.logger.error('Error depositing compensation on contract:', error);
       // Continue even if contract interaction fails
     }
 
     // Send notifications
-    await this.notificationService.notifyCompensationDeposited(updatedExpropriation);
+    await this.notificationService.create({
+      userId: expropriation.currentOwnerAddress,
+      type: NotificationType.COMPENSATION_DEPOSITED,
+      title: 'Compensation Deposited',
+      message: `Compensation of ${dto.amount} RWF has been deposited for your land parcel`,
+      data: {
+        expropriationId: expropriation.id,
+        parcelId: expropriation.parcelId,
+        amount: dto.amount,
+      },
+    });
 
     return updatedExpropriation;
   }
 
-  async claimCompensation(id: string, dto: ClaimCompensationDto, claimerAddress: string): Promise<Expropriation> {
+  async claimCompensation(
+    id: string,
+    dto: ClaimCompensationDto,
+    claimerAddress: string,
+  ): Promise<Expropriation> {
     const expropriation = await this.findOne(id);
 
     if (expropriation.status !== ExpropriationStatus.COMPENSATION_DEPOSITED) {
@@ -313,17 +374,29 @@ export class ExpropriationService {
 
     // Claim compensation on smart contract
     try {
-      const signer = new ethers.Wallet(this.configService.get<string>('PRIVATE_KEY'), this.provider);
+      const signer = new ethers.Wallet(
+        this.configService.get<string>('PRIVATE_KEY'),
+        this.provider,
+      );
       const contractWithSigner = this.expropriationContract.connect(signer);
-      
+
       await contractWithSigner.claimCompensation(parseInt(expropriation.parcelId));
     } catch (error) {
-      console.error('Error claiming compensation on contract:', error);
+      this.logger.error('Error claiming compensation on contract:', error);
       // Continue even if contract interaction fails
     }
 
     // Send notifications
-    await this.notificationService.notifyCompensationClaimed(updatedExpropriation);
+    await this.notificationService.create({
+      userId: expropriation.currentOwnerAddress,
+      type: NotificationType.COMPENSATION_CLAIMED,
+      title: 'Compensation Claimed',
+      message: `Compensation has been claimed for your land parcel`,
+      data: {
+        expropriationId: expropriation.id,
+        parcelId: expropriation.parcelId,
+      },
+    });
 
     return updatedExpropriation;
   }
@@ -332,7 +405,9 @@ export class ExpropriationService {
     const expropriation = await this.findOne(id);
 
     if (expropriation.status !== ExpropriationStatus.COMPENSATION_CLAIMED) {
-      throw new BadRequestException('Compensation must be claimed before expropriation can be completed');
+      throw new BadRequestException(
+        'Compensation must be claimed before expropriation can be completed',
+      );
     }
 
     // Update expropriation record
@@ -346,21 +421,34 @@ export class ExpropriationService {
 
     // Transfer ownership on smart contract (if needed)
     try {
-      const signer = new ethers.Wallet(this.configService.get<string>('PRIVATE_KEY'), this.provider);
+      const signer = new ethers.Wallet(
+        this.configService.get<string>('PRIVATE_KEY'),
+        this.provider,
+      );
       const nftContractWithSigner = this.landParcelNFTContract.connect(signer);
-      
+
       await nftContractWithSigner.safeTransferFrom(
         expropriation.currentOwnerAddress,
         dto.newOwnerAddress,
-        parseInt(expropriation.parcelId)
+        parseInt(expropriation.parcelId),
       );
     } catch (error) {
-      console.error('Error transferring ownership on contract:', error);
+      this.logger.error('Error transferring ownership on contract:', error);
       // Continue even if contract interaction fails
     }
 
     // Send notifications
-    await this.notificationService.notifyExpropriationCompleted(updatedExpropriation);
+    await this.notificationService.create({
+      userId: expropriation.currentOwnerAddress,
+      type: NotificationType.EXPROPRIATION_COMPLETED,
+      title: 'Expropriation Completed',
+      message: `Your land parcel has been expropriated`,
+      data: {
+        expropriationId: updatedExpropriation.id,
+        parcelId: expropriation.parcelId,
+        newOwnerAddress: dto.newOwnerAddress,
+      },
+    });
 
     return updatedExpropriation;
   }
@@ -380,17 +468,30 @@ export class ExpropriationService {
 
     // Cancel on smart contract
     try {
-      const signer = new ethers.Wallet(this.configService.get<string>('PRIVATE_KEY'), this.provider);
+      const signer = new ethers.Wallet(
+        this.configService.get<string>('PRIVATE_KEY'),
+        this.provider,
+      );
       const contractWithSigner = this.expropriationContract.connect(signer);
-      
+
       await contractWithSigner.cancelExpropriation(parseInt(expropriation.parcelId));
     } catch (error) {
-      console.error('Error cancelling expropriation on contract:', error);
+      this.logger.error('Error cancelling expropriation on contract:', error);
       // Continue even if contract interaction fails
     }
 
     // Send notifications
-    await this.notificationService.notifyExpropriationCancelled(updatedExpropriation);
+    await this.notificationService.create({
+      userId: expropriation.currentOwnerAddress,
+      type: NotificationType.EXPROPRIATION_CANCELLED,
+      title: 'Expropriation Cancelled',
+      message: `Your land parcel has been cancelled`,
+      data: {
+        expropriationId: updatedExpropriation.id,
+        parcelId: expropriation.parcelId,
+        cancellationReason: reason,
+      },
+    });
 
     return updatedExpropriation;
   }
@@ -406,13 +507,18 @@ export class ExpropriationService {
     ] = await Promise.all([
       this.expropriationRepository.count(),
       this.expropriationRepository.count({ where: { status: ExpropriationStatus.FLAGGED } }),
-      this.expropriationRepository.count({ where: { status: ExpropriationStatus.COMPENSATION_DEPOSITED } }),
-      this.expropriationRepository.count({ where: { status: ExpropriationStatus.COMPENSATION_CLAIMED } }),
+      this.expropriationRepository.count({
+        where: { status: ExpropriationStatus.COMPENSATION_DEPOSITED },
+      }),
+      this.expropriationRepository.count({
+        where: { status: ExpropriationStatus.COMPENSATION_CLAIMED },
+      }),
       this.expropriationRepository.count({ where: { status: ExpropriationStatus.COMPLETED } }),
       this.expropriationRepository.count({ where: { status: ExpropriationStatus.CANCELLED } }),
     ]);
 
-    const completionRate = totalExpropriations > 0 ? (completedExpropriations / totalExpropriations) * 100 : 0;
+    const completionRate =
+      totalExpropriations > 0 ? (completedExpropriations / totalExpropriations) * 100 : 0;
 
     // Calculate total compensation amounts
     const compensationStats = await this.expropriationRepository
@@ -466,9 +572,9 @@ export class ExpropriationService {
   async getEscrowedFunds(tokenId: number): Promise<string> {
     try {
       const amount = await this.expropriationContract.getEscrowedFunds(tokenId);
-      return ethers.utils.formatEther(amount);
+      return ethers.formatEther(amount);
     } catch (error) {
-      console.error('Error getting escrowed funds:', error);
+      this.logger.error('Error getting escrowed funds:', error);
       return '0';
     }
   }
@@ -478,14 +584,14 @@ export class ExpropriationService {
       const details = await this.expropriationContract.getCompensationDetails(tokenId);
       return {
         isFlagged: details.isFlagged,
-        proposedAmount: ethers.utils.formatEther(details.proposedAmount),
-        escrowedAmount: ethers.utils.formatEther(details.escrowedAmount),
+        proposedAmount: ethers.formatEther(details.proposedAmount),
+        escrowedAmount: ethers.formatEther(details.escrowedAmount),
         compensationClaimed: details.compensationClaimed,
         expropriatingAuthority: details.expropriatingAuthority,
         reason: details.reason,
       };
     } catch (error) {
-      console.error('Error getting compensation status:', error);
+      this.logger.error('Error getting compensation status:', error);
       return null;
     }
   }
@@ -496,10 +602,16 @@ export class ExpropriationService {
 
     if (onChainStatus) {
       let status = expropriation.status;
-      
-      if (onChainStatus.compensationClaimed && expropriation.status !== ExpropriationStatus.COMPENSATION_CLAIMED) {
+
+      if (
+        onChainStatus.compensationClaimed &&
+        expropriation.status !== ExpropriationStatus.COMPENSATION_CLAIMED
+      ) {
         status = ExpropriationStatus.COMPENSATION_CLAIMED;
-      } else if (parseFloat(onChainStatus.escrowedAmount) > 0 && expropriation.status === ExpropriationStatus.FLAGGED) {
+      } else if (
+        parseFloat(onChainStatus.escrowedAmount) > 0 &&
+        expropriation.status === ExpropriationStatus.FLAGGED
+      ) {
         status = ExpropriationStatus.COMPENSATION_DEPOSITED;
       }
 
@@ -515,7 +627,7 @@ export class ExpropriationService {
   // Document management methods
   async getExpropriationDocuments(id: string): Promise<any> {
     const expropriation = await this.findOne(id);
-    
+
     if (expropriation.reasonDocumentHash) {
       try {
         const document = await this.ipfsService.getContent(expropriation.reasonDocumentHash);
@@ -524,7 +636,7 @@ export class ExpropriationService {
           hash: expropriation.reasonDocumentHash,
         };
       } catch (error) {
-        console.error('Error retrieving document from IPFS:', error);
+        this.logger.error('Error retrieving document from IPFS:', error);
         return null;
       }
     }
@@ -536,7 +648,7 @@ export class ExpropriationService {
     try {
       return await this.ipfsService.getContent(hash);
     } catch (error) {
-      console.error('Error retrieving document from IPFS:', error);
+      this.logger.error('Error retrieving document from IPFS:', error);
       throw new NotFoundException('Document not found');
     }
   }
@@ -572,8 +684,8 @@ export class ExpropriationService {
       }
     });
 
-    summary.averageCompensation = expropriations.length > 0 ? 
-      summary.totalCompensation / expropriations.length : 0;
+    summary.averageCompensation =
+      expropriations.length > 0 ? summary.totalCompensation / expropriations.length : 0;
 
     return {
       summary,
@@ -603,4 +715,3 @@ export class ExpropriationService {
     }));
   }
 }
-

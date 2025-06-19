@@ -1,19 +1,26 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, MoreThan } from 'typeorm';
-import { Proposal, ProposalType, ProposalStatus } from './entities/proposal.entity';
+import { Proposal, ProposalType, ProposalStatus, Vote, VoteChoice } from './entities/proposal.entity';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { NotificationService } from '../notification/notification.service';
 import { BlockchainService } from '../blockchain/blockchain.service';
+import { NotificationType } from '../notification/enums/notification.enum';
 import {
   CreateProposalDto,
   UpdateProposalDto,
-  VoteOnProposalDto,
+  ProposalFilterDto,
+  CreateVoteDto,
+  VoteFilterDto,
   ExecuteProposalDto,
+  QueueProposalDto,
+  VoteOnProposalDto,
   ProposalResponseDto,
   ProposalListResponseDto,
   ProposalStatisticsDto,
   GovernanceStatisticsDto,
+  CancelProposalDto,
+  DelegateVotingPowerDto,
 } from './dto/governance.dto';
 
 @Injectable()
@@ -35,28 +42,30 @@ export class GovernanceService {
         title: createProposalDto.title,
         description: createProposalDto.description,
         proposalType: createProposalDto.proposalType,
-        targetContract: createProposalDto.targetContract,
-        functionSignature: createProposalDto.functionSignature,
-        calldata: createProposalDto.calldata,
+        targets: createProposalDto.targets,
+        values: createProposalDto.values,
+        signatures: createProposalDto.signatures,
+        calldatas: createProposalDto.calldatas,
         createdAt: new Date().toISOString(),
       };
 
       const ipfsHash = await this.ipfsService.uploadJson(proposalData);
 
       // Calculate voting period end time
-      const votingPeriodHours = createProposalDto.votingPeriodHours || 168; // Default 7 days
-      const votingEndTime = new Date();
-      votingEndTime.setHours(votingEndTime.getHours() + votingPeriodHours);
+      const votingThreshold = createProposalDto.votingThreshold || 50.0;
+      const votingEndDate = createProposalDto.votingEndDate 
+        ? new Date(createProposalDto.votingEndDate) 
+        : new Date(new Date().getTime() + (7 * 24 * 60 * 60 * 1000)); // Default 7 days
 
       const proposal = this.proposalRepository.create({
         ...createProposalDto,
-        ipfsHash,
+        detailsHash: ipfsHash,
         status: ProposalStatus.PENDING,
-        votingEndTime,
-        forVotes: 0,
-        againstVotes: 0,
-        abstainVotes: 0,
-        voters: [],
+        votingEndDate,
+        votesFor: '0',
+        votesAgainst: '0',
+        votesAbstain: '0',
+        votingThreshold,
       });
 
       const savedProposal = await this.proposalRepository.save(proposal);
@@ -64,20 +73,26 @@ export class GovernanceService {
 
       // Create on-chain proposal via blockchain service
       try {
-        const txHash = await this.blockchainService.createGovernanceProposal({
+        const onChainResult = await this.blockchainService.createGovernanceProposal({
           proposalId: savedProposal.id,
+          targets: createProposalDto.targets,
+          values: createProposalDto.values,
+          signatures: createProposalDto.signatures,
+          calldatas: createProposalDto.calldatas,
+          description: createProposalDto.description,
           ipfsHash,
-          votingPeriod: votingPeriodHours * 3600, // Convert to seconds
-          targetContract: createProposalDto.targetContract,
-          functionSignature: createProposalDto.functionSignature,
-          calldata: createProposalDto.calldata,
         });
 
-        savedProposal.onChainProposalId = txHash; // This would be the actual proposal ID from the contract
-        savedProposal.status = ProposalStatus.ACTIVE;
-        await this.proposalRepository.save(savedProposal);
+        // Update with on-chain information
+        await this.proposalRepository.update(savedProposal.id, {
+          status: ProposalStatus.ACTIVE,
+          metadata: {
+            ...savedProposal.metadata,
+            onChainCreation: onChainResult,
+          }
+        });
 
-        this.logger.log(`On-chain proposal created with tx hash: ${txHash}`);
+        this.logger.log(`On-chain proposal created for proposal ID: ${savedProposal.id}`);
       } catch (error) {
         this.logger.error('Failed to create on-chain proposal', error);
         // Keep the proposal in pending status if on-chain creation fails
@@ -86,7 +101,7 @@ export class GovernanceService {
       // Send notification to governance participants
       await this.notifyGovernanceParticipants(savedProposal);
 
-      return savedProposal;
+      return this.findOne(savedProposal.id);
     } catch (error) {
       this.logger.error('Failed to create governance proposal', error);
       throw error;
@@ -112,6 +127,7 @@ export class GovernanceService {
         order: { createdAt: 'DESC' },
         skip: (page - 1) * limit,
         take: limit,
+        relations: ['votes'],
       });
 
       return {
@@ -128,10 +144,15 @@ export class GovernanceService {
 
   async findOne(id: string): Promise<Proposal> {
     try {
-      const proposal = await this.proposalRepository.findOne({ where: { id } });
+      const proposal = await this.proposalRepository.findOne({ 
+        where: { id },
+        relations: ['votes'],
+      });
+      
       if (!proposal) {
         throw new NotFoundException(`Governance proposal with ID ${id} not found`);
       }
+      
       return proposal;
     } catch (error) {
       this.logger.error(`Failed to find governance proposal with ID: ${id}`, error);
@@ -178,52 +199,84 @@ export class GovernanceService {
         throw new BadRequestException('Proposal is not active for voting');
       }
 
-      if (new Date() > proposal.votingEndTime) {
+      if (new Date() > proposal.votingEndDate) {
         throw new BadRequestException('Voting period has ended');
       }
 
       // Check if user has already voted
-      if (proposal.voters.includes(voteDto.voter)) {
+      const hasVoted = proposal.votes.some(vote => vote.voter === voteDto.voter);
+      if (hasVoted) {
         throw new BadRequestException('User has already voted on this proposal');
       }
 
       // Record the vote on-chain first
       try {
-        const txHash = await this.blockchainService.voteOnProposal({
-          proposalId: proposal.onChainProposalId,
+        const voteResult = await this.blockchainService.voteOnProposal({
+          proposalId: proposal.proposalId,
           voter: voteDto.voter,
           support: voteDto.support,
-          votingPower: voteDto.votingPower,
+          votingPower: voteDto.votingPower.toString(),
         });
 
-        this.logger.log(`On-chain vote recorded with tx hash: ${txHash}`);
+        this.logger.log(`On-chain vote recorded for proposal ${id} by ${voteDto.voter}`);
+        
+        // Create vote record
+        const vote = new Vote();
+        vote.proposalId = id;
+        vote.voter = voteDto.voter;
+        vote.choice = voteDto.support === 'FOR' 
+          ? VoteChoice.FOR 
+          : voteDto.support === 'AGAINST' 
+            ? VoteChoice.AGAINST 
+            : VoteChoice.ABSTAIN;
+        vote.votingPower = voteDto.votingPower.toString();
+        vote.voteDate = new Date();
+        vote.blockNumber = voteResult.blockNumber || '0';
+        vote.transactionHash = voteResult.transactionHash || '';
+        vote.reason = voteDto.reason;
+        
+        // Update vote counts
+        switch (voteDto.support) {
+          case 'FOR':
+            proposal.votesFor = (BigInt(proposal.votesFor) + BigInt(voteDto.votingPower)).toString();
+            break;
+          case 'AGAINST':
+            proposal.votesAgainst = (BigInt(proposal.votesAgainst) + BigInt(voteDto.votingPower)).toString();
+            break;
+          case 'ABSTAIN':
+            proposal.votesAbstain = (BigInt(proposal.votesAbstain) + BigInt(voteDto.votingPower)).toString();
+            break;
+        }
+        
+        // Add vote to proposal
+        if (!proposal.votes) {
+          proposal.votes = [];
+        }
+        proposal.votes.push(vote);
+        
+        // Check if quorum and threshold are reached
+        const totalVotes = BigInt(proposal.votesFor) + BigInt(proposal.votesAgainst) + BigInt(proposal.votesAbstain);
+        const quorumReached = totalVotes >= BigInt(proposal.quorumRequired);
+        
+        const forVotesPercentage = totalVotes > BigInt(0) 
+          ? (Number(BigInt(proposal.votesFor) * BigInt(100)) / Number(totalVotes)) 
+          : 0;
+        const thresholdReached = forVotesPercentage >= proposal.votingThreshold;
+        
+        proposal.quorumReached = quorumReached;
+        proposal.thresholdReached = thresholdReached;
+        
+        const updatedProposal = await this.proposalRepository.save(proposal);
+        
       } catch (error) {
         this.logger.error('Failed to record vote on-chain', error);
         throw new BadRequestException('Failed to record vote on blockchain');
       }
 
-      // Update local vote counts
-      proposal.voters.push(voteDto.voter);
-      
-      switch (voteDto.support) {
-        case 'FOR':
-          proposal.forVotes += voteDto.votingPower;
-          break;
-        case 'AGAINST':
-          proposal.againstVotes += voteDto.votingPower;
-          break;
-        case 'ABSTAIN':
-          proposal.abstainVotes += voteDto.votingPower;
-          break;
-      }
-
-      const updatedProposal = await this.proposalRepository.save(proposal);
-      this.logger.log(`Vote recorded for proposal ${id} by ${voteDto.voter}`);
-
       // Send notification about the vote
       await this.notificationService.create({
         userId: proposal.proposer,
-        type: 'GOVERNANCE_VOTE_CAST',
+        type: NotificationType.VOTE_CAST,
         title: 'New Vote on Your Proposal',
         message: `A new vote has been cast on your proposal "${proposal.title}"`,
         data: { 
@@ -234,7 +287,7 @@ export class GovernanceService {
         },
       });
 
-      return updatedProposal;
+      return this.findOne(id);
     } catch (error) {
       this.logger.error(`Failed to vote on proposal with ID: ${id}`, error);
       throw error;
@@ -251,15 +304,21 @@ export class GovernanceService {
 
       // Execute the proposal on-chain
       try {
-        const txHash = await this.blockchainService.executeProposal({
-          proposalId: proposal.onChainProposalId,
-          executedBy: executeDto.executedBy,
+        const executionResult = await this.blockchainService.executeProposal({
+          proposalId: proposal.proposalId,
+          targets: proposal.targets,
+          values: proposal.values,
+          signatures: proposal.signatures,
+          calldatas: proposal.calldatas,
         });
 
         proposal.status = ProposalStatus.EXECUTED;
-        proposal.executedAt = new Date();
-        proposal.executedBy = executeDto.executedBy;
-        proposal.executionTxHash = txHash;
+        proposal.executedDate = new Date();
+        proposal.executionTransactionHash = executeDto.executionTransactionHash;
+        proposal.metadata = {
+          ...proposal.metadata,
+          executionResult,
+        };
 
         const updatedProposal = await this.proposalRepository.save(proposal);
         this.logger.log(`Proposal executed with ID: ${id}`);
@@ -267,13 +326,12 @@ export class GovernanceService {
         // Send notification about execution
         await this.notificationService.create({
           userId: proposal.proposer,
-          type: 'GOVERNANCE_PROPOSAL_EXECUTED',
+          type: NotificationType.PROPOSAL_EXECUTED,
           title: 'Proposal Executed',
           message: `Your proposal "${proposal.title}" has been executed successfully`,
           data: { 
             proposalId: id, 
-            executedBy: executeDto.executedBy,
-            transactionHash: txHash,
+            executionTransactionHash: executeDto.executionTransactionHash,
           },
         });
 
@@ -288,7 +346,7 @@ export class GovernanceService {
     }
   }
 
-  async cancel(id: string, cancelledBy: string, reason: string): Promise<Proposal> {
+  async cancel(id: string, cancelDto: CancelProposalDto): Promise<Proposal> {
     try {
       const proposal = await this.findOne(id);
 
@@ -297,12 +355,15 @@ export class GovernanceService {
       }
 
       proposal.status = ProposalStatus.CANCELLED;
-      proposal.cancelledAt = new Date();
-      proposal.cancelledBy = cancelledBy;
-      proposal.cancellationReason = reason;
+      proposal.cancellationReason = cancelDto.reason;
+      proposal.metadata = {
+        ...proposal.metadata,
+        cancelledBy: cancelDto.cancelledBy,
+        cancelledAt: new Date().toISOString(),
+      };
 
       const updatedProposal = await this.proposalRepository.save(proposal);
-      this.logger.log(`Proposal cancelled by ${cancelledBy}: ${id}`);
+      this.logger.log(`Proposal cancelled by ${cancelDto.cancelledBy}: ${id}`);
 
       return updatedProposal;
     } catch (error) {
@@ -317,15 +378,19 @@ export class GovernanceService {
       const endedProposals = await this.proposalRepository.find({
         where: {
           status: ProposalStatus.ACTIVE,
-          votingEndTime: MoreThan(new Date()) as any,
+          votingEndDate: MoreThan(new Date()) as any,
         },
       });
 
       for (const proposal of endedProposals) {
         // Determine if proposal succeeded based on voting results
-        const totalVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
-        const quorumMet = totalVotes >= (proposal.quorumRequired || 0);
-        const majorityFor = proposal.forVotes > proposal.againstVotes;
+        const totalVotes = BigInt(proposal.votesFor) + BigInt(proposal.votesAgainst) + BigInt(proposal.votesAbstain);
+        const quorumMet = totalVotes >= BigInt(proposal.quorumRequired);
+        
+        const forVotesPercentage = totalVotes > BigInt(0) 
+          ? (Number(BigInt(proposal.votesFor) * BigInt(100)) / Number(totalVotes)) 
+          : 0;
+        const majorityFor = forVotesPercentage >= proposal.votingThreshold;
 
         if (quorumMet && majorityFor) {
           proposal.status = ProposalStatus.SUCCEEDED;
@@ -393,8 +458,8 @@ export class GovernanceService {
       let totalVotingPower = 0;
       
       for (const proposal of activeProposals) {
-        totalVoters += proposal.voters.length;
-        totalVotingPower += proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+        totalVoters += proposal.votesFor;
+        totalVotingPower += proposal.votesFor + proposal.votesAgainst + proposal.votesAbstain;
       }
 
       const averageParticipation = activeProposals.length > 0 
@@ -423,21 +488,21 @@ export class GovernanceService {
   private mapToResponseDto(proposal: Proposal): ProposalResponseDto {
     return {
       id: proposal.id,
-      onChainProposalId: proposal.onChainProposalId,
+      onChainProposalId: proposal.proposalId,
       proposalType: proposal.proposalType,
       status: proposal.status,
       title: proposal.title,
       description: proposal.description,
       proposer: proposal.proposer,
-      forVotes: proposal.forVotes,
-      againstVotes: proposal.againstVotes,
-      abstainVotes: proposal.abstainVotes,
+      forVotes: proposal.votesFor,
+      againstVotes: proposal.votesAgainst,
+      abstainVotes: proposal.votesAbstain,
       quorumRequired: proposal.quorumRequired,
-      votingEndTime: proposal.votingEndTime,
+      votingEndTime: proposal.votingEndDate,
       createdAt: proposal.createdAt,
-      executedAt: proposal.executedAt,
-      executedBy: proposal.executedBy,
-      executionTxHash: proposal.executionTxHash,
+      executedAt: proposal.executedDate,
+      executedBy: proposal.metadata?.executedBy,
+      executionTxHash: proposal.executionTransactionHash,
     };
   }
 }

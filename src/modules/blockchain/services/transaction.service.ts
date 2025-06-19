@@ -6,6 +6,7 @@ import {
   Contract,
   TransactionResponse,
   TransactionReceipt,
+  BigNumberish
 } from 'ethers';
 
 @Injectable()
@@ -29,7 +30,7 @@ export class TransactionService {
     abi: any[],
     methodName: string,
     params: any[] = [],
-    value?: BigNumber,
+    value?: BigNumberish,
   ): Promise<TransactionResponse> {
     try {
       const contract = new Contract(contractAddress, abi, this.signer);
@@ -40,7 +41,11 @@ export class TransactionService {
 
       const gasLimit = gasEstimate.mul(120).div(100);
 
-      const gasPrice = await this.provider.getGasPrice();
+      const feeData = await this.provider.getFeeData();
+      const gasPrice = feeData.gasPrice;
+      if (!gasPrice) {
+        throw new Error('Unable to fetch gas price from provider');
+      }
 
       const tx = await contract[methodName](...params, {
         value: value || 0,
@@ -71,12 +76,16 @@ export class TransactionService {
   async sendRawTransaction(
     to: string,
     data: string,
-    value?: BigNumber,
-    gasLimit?: BigNumber,
+    value?: BigNumberish,
+    gasLimit?: BigNumberish,
   ): Promise<TransactionResponse> {
     try {
       const nonce = await this.provider.getTransactionCount(this.signer.address);
-      const gasPrice = await this.provider.getGasPrice();
+      const feeData = await this.provider.getFeeData();
+      const gasPrice = feeData.gasPrice;
+      if (!gasPrice) {
+        throw new Error('Unable to fetch gas price from provider');
+      }
 
       const transaction = {
         to,
@@ -144,7 +153,7 @@ export class TransactionService {
       abi: any[];
       methodName: string;
       params: any[];
-      value?: BigNumber;
+      value?: BigNumberish;
     }>,
   ): Promise<TransactionResponse[]> {
     const results: TransactionResponse[] = [];
@@ -179,11 +188,11 @@ export class TransactionService {
     abi: any[],
     methodName: string,
     params: any[] = [],
-    value?: BigNumber,
+    value?: BigNumberish,
   ): Promise<{
-    gasEstimate: BigNumber;
-    gasPrice: BigNumber;
-    estimatedCost: BigNumber;
+    gasEstimate: BigNumberish;
+    gasPrice: BigNumberish;
+    estimatedCost: BigNumberish;
   }> {
     try {
       const contract = new Contract(contractAddress, abi, this.provider);
@@ -192,7 +201,11 @@ export class TransactionService {
         value: value || 0,
       });
 
-      const gasPrice = await this.provider.getGasPrice();
+      const feeData = await this.provider.getFeeData();
+      const gasPrice = feeData.gasPrice;
+      if (!gasPrice) {
+        throw new Error('Unable to fetch gas price from provider');
+      }
       const estimatedCost = gasEstimate.mul(gasPrice);
 
       return {
@@ -239,7 +252,7 @@ export class TransactionService {
 
   async cancelTransaction(
     originalTxHash: string,
-    gasPrice?: BigNumber,
+    gasPrice?: BigNumberish,
   ): Promise<TransactionResponse> {
     try {
       const originalTx = await this.provider.getTransaction(originalTxHash);
@@ -277,7 +290,7 @@ export class TransactionService {
 
   async speedUpTransaction(
     originalTxHash: string,
-    gasPrice?: BigNumber,
+    gasPrice?: BigNumberish,
   ): Promise<TransactionResponse> {
     try {
       const originalTx = await this.provider.getTransaction(originalTxHash);

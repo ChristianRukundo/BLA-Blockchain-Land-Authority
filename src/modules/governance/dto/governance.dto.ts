@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsEnum,
@@ -12,6 +12,8 @@ import {
   Length,
   Min,
   Max,
+  IsUUID,
+  ValidateNested,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ProposalStatus, ProposalType, VoteChoice } from '../entities/proposal.entity';
@@ -25,7 +27,10 @@ export class CreateProposalDto {
   @IsEnum(ProposalType)
   proposalType: ProposalType;
 
-  @ApiProperty({ description: 'Address of the proposer', example: '0x742d35Cc6634C0532925a3b8D4C9db96' })
+  @ApiProperty({
+    description: 'Address of the proposer',
+    example: '0x742d35Cc6634C0532925a3b8D4C9db96',
+  })
   @IsEthereumAddress()
   proposer: string;
 
@@ -394,3 +399,145 @@ export class QueueProposalDto {
   earliestExecutionDate: string;
 }
 
+export class VoteOnProposalDto {
+  @ApiProperty({ description: 'Voter address' })
+  @IsEthereumAddress()
+  voter: string;
+
+  @ApiProperty({ description: 'Vote support', enum: ['FOR', 'AGAINST', 'ABSTAIN'] })
+  @IsEnum(['FOR', 'AGAINST', 'ABSTAIN'])
+  support: 'FOR' | 'AGAINST' | 'ABSTAIN';
+
+  @ApiProperty({ description: 'Voting power amount' })
+  @IsNumber()
+  @Min(0)
+  votingPower: number;
+
+  @ApiProperty({ description: 'Reason for vote', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(0, 1000)
+  reason?: string;
+}
+
+export class ProposalResponseDto {
+  @ApiProperty({ description: 'Proposal ID' })
+  id: string;
+
+  @ApiProperty({ description: 'On-chain proposal ID' })
+  onChainProposalId: string;
+
+  @ApiProperty({ description: 'Proposal type', enum: ProposalType })
+  proposalType: ProposalType;
+
+  @ApiProperty({ description: 'Proposal status', enum: ProposalStatus })
+  status: ProposalStatus;
+
+  @ApiProperty({ description: 'Proposal title' })
+  title: string;
+
+  @ApiProperty({ description: 'Proposal description' })
+  description: string;
+
+  @ApiProperty({ description: 'Proposer address' })
+  proposer: string;
+
+  @ApiProperty({ description: 'Votes for the proposal' })
+  forVotes: string;
+
+  @ApiProperty({ description: 'Votes against the proposal' })
+  againstVotes: string;
+
+  @ApiProperty({ description: 'Abstain votes' })
+  abstainVotes: string;
+
+  @ApiProperty({ description: 'Quorum required for proposal' })
+  quorumRequired: string;
+
+  @ApiProperty({ description: 'Voting end time' })
+  votingEndTime: Date;
+
+  @ApiProperty({ description: 'Creation timestamp' })
+  createdAt: Date;
+
+  @ApiProperty({ description: 'Execution timestamp', required: false })
+  executedAt?: Date;
+
+  @ApiProperty({ description: 'Executed by address', required: false })
+  executedBy?: string;
+
+  @ApiProperty({ description: 'Execution transaction hash', required: false })
+  executionTxHash?: string;
+}
+
+export class ProposalListResponseDto {
+  @ApiProperty({ description: 'List of proposals', type: [ProposalResponseDto] })
+  proposals: ProposalResponseDto[];
+
+  @ApiProperty({ description: 'Total number of proposals matching the filter' })
+  total: number;
+
+  @ApiProperty({ description: 'Current page number' })
+  page: number;
+
+  @ApiProperty({ description: 'Number of items per page' })
+  limit: number;
+}
+
+export class ProposalStatisticsDto {
+  @ApiProperty({ description: 'Total number of proposals' })
+  totalProposals: number;
+
+  @ApiProperty({ description: 'Proposals by status' })
+  proposalsByStatus: Record<ProposalStatus, number>;
+
+  @ApiProperty({ description: 'Proposals by type' })
+  proposalsByType: Record<ProposalType, number>;
+
+  @ApiProperty({ description: 'Number of proposals in the last 30 days' })
+  recentProposals: number;
+}
+
+export class GovernanceStatisticsDto extends ProposalStatisticsDto {
+  @ApiProperty({ description: 'Number of active proposals' })
+  activeProposals: number;
+
+  @ApiProperty({ description: 'Total number of unique voters' })
+  totalVoters: number;
+
+  @ApiProperty({ description: 'Total voting power used' })
+  totalVotingPower: number;
+
+  @ApiProperty({ description: 'Average participation rate per proposal' })
+  averageParticipation: number;
+}
+
+export class DelegateVotingPowerDto {
+  @ApiProperty({ description: 'Delegator address' })
+  @IsEthereumAddress()
+  delegator: string;
+
+  @ApiProperty({ description: 'Delegate address' })
+  @IsEthereumAddress()
+  delegate: string;
+
+  @ApiProperty({ description: 'Amount of voting power to delegate' })
+  @IsString()
+  amount: string;
+
+  @ApiProperty({ description: 'Expiration date of delegation', required: false })
+  @IsOptional()
+  @IsDateString()
+  expirationDate?: string;
+}
+
+export class CancelProposalDto {
+  @ApiProperty({ description: 'Address of the canceller' })
+  @IsEthereumAddress()
+  cancelledBy: string;
+
+  @ApiProperty({ description: 'Reason for cancellation' })
+  @IsString()
+  @Length(10, 1000)
+  reason: string;
+}

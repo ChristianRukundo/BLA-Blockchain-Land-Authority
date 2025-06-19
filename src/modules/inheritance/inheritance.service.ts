@@ -7,6 +7,7 @@ import { IpfsService } from '../ipfs/ipfs.service';
 import { NotificationService } from '../notification/notification.service';
 import { BlockchainService } from '../blockchain/blockchain.service';
 import { LaisService } from '../lais/lais.service';
+import { NotificationType } from '../notification/enums/notification.enum';
 import {
   CreateInheritanceDto,
   UpdateInheritanceDto,
@@ -70,7 +71,7 @@ export class InheritanceService {
       // Send notification to the designated heir
       await this.notificationService.create({
         userId: createInheritanceDto.designatedHeir,
-        type: 'INHERITANCE_DESIGNATED',
+        type: NotificationType.INHERITANCE_DESIGNATED,
         title: 'You Have Been Designated as an Heir',
         message: `You have been designated as the heir for land parcel ${landParcel.title}`,
         data: { 
@@ -243,7 +244,7 @@ export class InheritanceService {
       // Send notification to the heir
       await this.notificationService.create({
         userId: request.requestedBy,
-        type: processDto.approved ? 'INHERITANCE_APPROVED' : 'INHERITANCE_REJECTED',
+        type: processDto.approved ? NotificationType.INHERITANCE_APPROVED : NotificationType.INHERITANCE_REJECTED,
         title: processDto.approved ? 'Inheritance Request Approved' : 'Inheritance Request Rejected',
         message: processDto.approved 
           ? 'Your inheritance request has been approved and the land transfer is being processed'

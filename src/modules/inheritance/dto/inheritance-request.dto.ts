@@ -239,3 +239,54 @@ export class ExecuteInheritanceDto {
   notes?: string;
 }
 
+export class InheritanceRequestResponseDto {
+  @ApiProperty({ description: 'Request ID' })
+  id: string;
+
+  @ApiProperty({ description: 'Land parcel ID' })
+  parcelId: string;
+
+  @ApiProperty({ description: 'Owner address' })
+  ownerAddress: string;
+
+  @ApiProperty({ description: 'Heir address' })
+  heirAddress: string;
+
+  @ApiProperty({ description: 'Request status', enum: InheritanceStatus })
+  status: InheritanceStatus;
+
+  @ApiProperty({ description: 'Request date' })
+  requestDate: Date;
+
+  @ApiProperty({ description: 'Death certificate reference', required: false })
+  deathCertificateRef?: string;
+
+  @ApiProperty({ description: 'Date of death', required: false })
+  dateOfDeath?: Date;
+
+  @ApiProperty({ description: 'Verification source', enum: VerificationSource, required: false })
+  verificationSource?: VerificationSource;
+
+  @ApiProperty({ description: 'Transaction hash', required: false })
+  transferTransactionHash?: string;
+
+  @ApiProperty({ description: 'Creation timestamp' })
+  createdAt: Date;
+
+  @ApiProperty({ description: 'Last update timestamp' })
+  updatedAt: Date;
+}
+
+export class InheritanceRequestListResponseDto {
+  @ApiProperty({ description: 'List of inheritance requests', type: [InheritanceRequestResponseDto] })
+  requests: InheritanceRequestResponseDto[];
+
+  @ApiProperty({ description: 'Total number of requests matching the filter' })
+  total: number;
+
+  @ApiProperty({ description: 'Current page number' })
+  page: number;
+
+  @ApiProperty({ description: 'Number of items per page' })
+  limit: number;
+}

@@ -9,9 +9,9 @@ import {
   Index,
 } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
-import { LandParcel } from '../lais/entities/land-parcel.entity';
+import LandParcel from '../../lais/entities/land-parcel.entity';
 
-export enum InheritanceStatus {
+export enum RequestStatus {
   PENDING = 'PENDING',
   VERIFICATION_REQUESTED = 'VERIFICATION_REQUESTED',
   DEATH_VERIFIED = 'DEATH_VERIFIED',
@@ -55,9 +55,17 @@ export class InheritanceRequest {
   @Column({ type: 'varchar', length: 42 })
   heirAddress: string;
 
-  @ApiProperty({ description: 'Inheritance request status', enum: InheritanceStatus })
-  @Column({ type: 'enum', enum: InheritanceStatus, default: InheritanceStatus.PENDING })
-  status: InheritanceStatus;
+  @ApiProperty({ description: 'User who requested the inheritance' })
+  @Column({ type: 'varchar', length: 42 })
+  requestedBy: string;
+
+  @ApiProperty({ description: 'Associated inheritance ID' })
+  @Column({ type: 'uuid', nullable: true })
+  inheritanceId: string;
+
+  @ApiProperty({ description: 'Inheritance request status', enum: RequestStatus })
+  @Column({ type: 'enum', enum: RequestStatus, default: RequestStatus.PENDING })
+  status: RequestStatus;
 
   @ApiProperty({ description: 'Date when inheritance was requested' })
   @Column({ type: 'timestamp' })
@@ -95,6 +103,22 @@ export class InheritanceRequest {
   @Column({ type: 'timestamp', nullable: true })
   completedDate: Date;
 
+  @ApiProperty({ description: 'Date when request was processed' })
+  @Column({ type: 'timestamp', nullable: true })
+  processedAt: Date;
+
+  @ApiProperty({ description: 'User who processed the request' })
+  @Column({ type: 'varchar', length: 42, nullable: true })
+  processedBy: string;
+
+  @ApiProperty({ description: 'Verification notes from processor' })
+  @Column({ type: 'text', nullable: true })
+  verificationNotes: string;
+
+  @ApiProperty({ description: 'Oracle verification transaction hash' })
+  @Column({ type: 'varchar', length: 66, nullable: true })
+  oracleVerificationTxHash: string;
+
   @ApiProperty({ description: 'Reason for rejection or cancellation' })
   @Column({ type: 'text', nullable: true })
   rejectionReason: string;
@@ -129,19 +153,19 @@ export class InheritanceRequest {
 
   // Virtual properties
   get isPending(): boolean {
-    return this.status === InheritanceStatus.PENDING;
+    return this.status === RequestStatus.PENDING;
   }
 
   get isVerified(): boolean {
-    return this.status === InheritanceStatus.DEATH_VERIFIED;
+    return this.status === RequestStatus.DEATH_VERIFIED;
   }
 
   get isCompleted(): boolean {
-    return this.status === InheritanceStatus.COMPLETED;
+    return this.status === RequestStatus.COMPLETED;
   }
 
   get canExecute(): boolean {
-    return this.status === InheritanceStatus.DEATH_VERIFIED && !this.transferTransactionHash;
+    return this.status === RequestStatus.DEATH_VERIFIED && !this.transferTransactionHash;
   }
 
   get daysSinceRequest(): number {
@@ -150,4 +174,3 @@ export class InheritanceRequest {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 }
-

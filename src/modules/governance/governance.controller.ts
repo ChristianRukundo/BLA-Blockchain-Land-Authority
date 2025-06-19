@@ -18,7 +18,7 @@ import { GovernanceService } from './governance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import { UserRole } from '../auth/enums/user-role.enum';
 import { ProposalType, ProposalStatus } from './entities/proposal.entity';
 import {
   CreateProposalDto,
