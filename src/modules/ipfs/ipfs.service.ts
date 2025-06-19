@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException, InternalServerErrorException }
 import { ConfigService } from '@nestjs/config';
 import { create as ipfsHttpClient, IPFSHTTPClient } from 'ipfs-http-client';
 import axios from 'axios';
-import * as FormData from 'form-data';
+import FormData from 'form-data';
 import { Readable } from 'stream';
 
 export interface IPFSUploadResult {
@@ -77,7 +77,7 @@ export class IpfsService {
       return result;
     } catch (error) {
       this.logger.error('File upload failed:', error);
-      throw new InternalServerErrorException(`Failed to upload file: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to upload file: ${(error as any).message}`);
     }
   }
 
@@ -125,7 +125,7 @@ export class IpfsService {
       return hash;
     } catch (error) {
       this.logger.error('JSON upload failed:', error);
-      throw new InternalServerErrorException(`Failed to upload JSON: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to upload JSON: ${(error as any).message}`);
     }
   }
 
@@ -171,7 +171,7 @@ export class IpfsService {
       return hash;
     } catch (error) {
       this.logger.error('Text upload failed:', error);
-      throw new InternalServerErrorException(`Failed to upload text: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to upload text: ${(error as any).message}`);
     }
   }
 
@@ -189,7 +189,7 @@ export class IpfsService {
       }
     } catch (error) {
       this.logger.error(`Failed to retrieve content ${hash}:`, error);
-      throw new InternalServerErrorException(`Failed to retrieve content: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to retrieve content: ${(error as any).message}`);
     }
   }
 
@@ -228,7 +228,7 @@ export class IpfsService {
       }
     } catch (error) {
       this.logger.error(`Failed to get metadata for ${hash}:`, error);
-      throw new InternalServerErrorException(`Failed to get metadata: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to get metadata: ${(error as any).message}`);
     }
   }
 

@@ -3,10 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
-import * as helmet from 'helmet';
-import * as compression from 'compression';
-import * as cors from 'cors';
-
+import helmet from 'helmet';
+import compression from 'compression';
+import cors from 'cors';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -110,7 +109,6 @@ async function bootstrap() {
 
   console.log(`
 🚀 RwaLandChain Backend Server Started!
-
 📍 Server URL: http://localhost:${port}
 📚 API Documentation: http://localhost:${port}/${configService.get('app.swagger.path')}
 🔧 Environment: ${configService.get('app.nodeEnv')}
@@ -127,10 +125,9 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   console.error('Uncaught Exception:', error);
   process.exit(1);
 });
 
 bootstrap();
-

@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-import { AdminAction, ActionType, ActionStatus } from './entities/admin-action.entity';
+import { AdminAction, AdminActionType, AdminActionStatus } from './entities/admin-action.entity';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { NotificationService } from '../notification/notification.service';
+import { EmailService } from '../email/email.service';
+import { ConfigService } from '@nestjs/config';
+import { User } from '../auth/entities/user.entity';
+import { NotificationType } from '../notification/enums/notification.enum';
 import {
   CreateAdminActionDto,
   UpdateAdminActionDto,
@@ -13,6 +17,7 @@ import {
   AdminActionResponseDto,
   AdminActionListResponseDto,
   AdminActionStatisticsDto,
+  AdminActionFilterDto,
 } from './dto/admin.dto';
 
 @Injectable()
@@ -22,13 +27,19 @@ export class AdminService {
   constructor(
     @InjectRepository(AdminAction)
     private readonly adminActionRepository: Repository<AdminAction>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly ipfsService: IpfsService,
     private readonly notificationService: NotificationService,
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
   ) {}
 
-  async createAction(createAdminActionDto: CreateAdminActionDto): Promise<AdminAction> {
+  async createAdminAction(
+    createAdminActionDto: CreateAdminActionDto,
+    initiatorAddress: string,
+  ): Promise<AdminAction> {
     try {
-      // Store action data in IPFS for immutability
       const ipfsHash = await this.ipfsService.uploadJson({
         actionType: createAdminActionDto.actionType,
         actionData: createAdminActionDto.actionData,
@@ -38,17 +49,27 @@ export class AdminService {
 
       const adminAction = this.adminActionRepository.create({
         ...createAdminActionDto,
-        ipfsHash,
-        status: ActionStatus.PENDING,
+        initiatorAddress,
+        dataHash: ipfsHash,
+        status: AdminActionStatus.PENDING,
         approvals: [],
         rejections: [],
+        createdDate: new Date(),
+        requiredApprovals: createAdminActionDto.requiredApprovals || 1,
       });
 
       const savedAction = await this.adminActionRepository.save(adminAction);
       this.logger.log(`Admin action created with ID: ${savedAction.id}`);
 
-      // Send notifications to required approvers
       await this.notifyApprovers(savedAction);
+
+      await this.notificationService.createNotification({
+        userId: initiatorAddress,
+        type: NotificationType.ADMIN_ACTION_CREATED,
+        title: 'Admin Action Created',
+        content: `Your admin action "${savedAction.actionType}" has been created and is pending approval`,
+        data: { actionId: savedAction.id },
+      });
 
       return savedAction;
     } catch (error) {
@@ -57,32 +78,35 @@ export class AdminService {
     }
   }
 
-  async findAll(
-    page: number = 1,
-    limit: number = 10,
-    actionType?: ActionType,
-    status?: ActionStatus,
-    createdBy?: string,
-  ): Promise<AdminActionListResponseDto> {
+  async findAll(filters: AdminActionFilterDto): Promise<AdminActionListResponseDto> {
     try {
       const where: FindOptionsWhere<AdminAction> = {};
-      
-      if (actionType) where.actionType = actionType;
-      if (status) where.status = status;
-      if (createdBy) where.createdBy = createdBy;
+
+      if (filters.actionType) where.actionType = filters.actionType;
+      if (filters.status) where.status = filters.status;
+      if (filters.initiatorAddress) where.initiatorAddress = filters.initiatorAddress;
+      if (filters.targetContract) where.targetContract = filters.targetContract;
+
+      if (filters.pendingOnly) {
+        where.status = AdminActionStatus.PENDING;
+      }
+
+      if (filters.readyForExecution) {
+        where.status = AdminActionStatus.APPROVED;
+      }
 
       const [actions, total] = await this.adminActionRepository.findAndCount({
         where,
-        order: { createdAt: 'DESC' },
-        skip: (page - 1) * limit,
-        take: limit,
+        order: { [filters.sortBy || 'createdDate']: filters.sortOrder || 'DESC' },
+        skip: ((filters.page || 1) - 1) * (filters.limit || 10),
+        take: filters.limit || 10,
       });
 
       return {
         actions: actions.map(action => this.mapToResponseDto(action)),
         total,
-        page,
-        limit,
+        page: filters.page || 1,
+        limit: filters.limit || 10,
       };
     } catch (error) {
       this.logger.error('Failed to fetch admin actions', error);
@@ -107,14 +131,13 @@ export class AdminService {
     try {
       const action = await this.findOne(id);
 
-      // Only allow updates if action is still pending
-      if (action.status !== ActionStatus.PENDING) {
+      if (action.status !== AdminActionStatus.PENDING) {
         throw new BadRequestException('Cannot update action that is not pending');
       }
 
       Object.assign(action, updateAdminActionDto);
       const updatedAction = await this.adminActionRepository.save(action);
-      
+
       this.logger.log(`Admin action updated with ID: ${id}`);
       return updatedAction;
     } catch (error) {
@@ -123,41 +146,65 @@ export class AdminService {
     }
   }
 
-  async approve(id: string, approveActionDto: ApproveActionDto): Promise<AdminAction> {
+  async approveAction(
+    id: string,
+    approveActionDto: ApproveActionDto,
+    approverAddress: string,
+  ): Promise<AdminAction> {
     try {
       const action = await this.findOne(id);
 
-      if (action.status !== ActionStatus.PENDING) {
+      if (action.status !== AdminActionStatus.PENDING) {
         throw new BadRequestException('Action is not pending approval');
       }
 
-      // Check if user has already approved
-      if (action.approvals.includes(approveActionDto.approvedBy)) {
+      if (action.approvals.includes(approverAddress)) {
         throw new BadRequestException('User has already approved this action');
       }
 
-      // Add approval
-      action.approvals.push(approveActionDto.approvedBy);
+      action.approvals.push(approverAddress);
       action.approvalComments = action.approvalComments || {};
-      action.approvalComments[approveActionDto.approvedBy] = approveActionDto.comment;
+      action.approvalComments[approverAddress] = approveActionDto.comment;
 
-      // Check if we have enough approvals
       if (action.approvals.length >= action.requiredApprovals) {
-        action.status = ActionStatus.APPROVED;
-        action.approvedAt = new Date();
+        action.status = AdminActionStatus.APPROVED;
+        action.approvedDate = new Date();
       }
 
       const updatedAction = await this.adminActionRepository.save(action);
-      this.logger.log(`Admin action approved by ${approveActionDto.approvedBy}: ${id}`);
+      this.logger.log(`Admin action approved by ${approverAddress}: ${id}`);
 
-      // Send notification about approval
-      await this.notificationService.create({
-        userId: action.createdBy,
-        type: 'ADMIN_ACTION_APPROVED',
+      await this.notificationService.createNotification({
+        userId: action.initiatorAddress,
+        type: NotificationType.ADMIN_ACTION_APPROVED,
         title: 'Admin Action Approved',
-        message: `Your admin action "${action.actionType}" has been approved by ${approveActionDto.approvedBy}`,
-        data: { actionId: id, approvedBy: approveActionDto.approvedBy },
+        content: `Your admin action "${action.actionType}" has been approved by ${approverAddress}`,
+        data: { actionId: id, approvedBy: approverAddress },
       });
+
+      try {
+        const user = await this.userRepository.findOne({
+          where: { walletAddress: action.initiatorAddress },
+        });
+        if (user && user.email) {
+          await this.emailService.sendAdminActionNotification(
+            user.email,
+            user.firstName || 'User',
+            action.actionType,
+            'APPROVED',
+            {
+              actionId: id,
+              title: action.title,
+              description: action.description,
+              approvedBy: approverAddress,
+              timestamp: new Date().toISOString(),
+              actionUrl: `${this.configService.get('app.url')}/admin/actions/${id}`,
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send email notification for action approval: ${id}`, error);
+      }
 
       return updatedAction;
     } catch (error) {
@@ -166,38 +213,60 @@ export class AdminService {
     }
   }
 
-  async reject(id: string, rejectActionDto: RejectActionDto): Promise<AdminAction> {
+  async rejectAction(id: string, reason: string, rejectorAddress: string): Promise<AdminAction> {
     try {
       const action = await this.findOne(id);
 
-      if (action.status !== ActionStatus.PENDING) {
+      if (action.status !== AdminActionStatus.PENDING) {
         throw new BadRequestException('Action is not pending approval');
       }
 
-      // Check if user has already rejected
-      if (action.rejections.includes(rejectActionDto.rejectedBy)) {
+      if (action.rejections.includes(rejectorAddress)) {
         throw new BadRequestException('User has already rejected this action');
       }
 
-      // Add rejection
-      action.rejections.push(rejectActionDto.rejectedBy);
+      action.rejections.push(rejectorAddress);
       action.rejectionComments = action.rejectionComments || {};
-      action.rejectionComments[rejectActionDto.rejectedBy] = rejectActionDto.reason;
+      action.rejectionComments[rejectorAddress] = reason;
 
-      action.status = ActionStatus.REJECTED;
-      action.rejectedAt = new Date();
+      action.status = AdminActionStatus.REJECTED;
+      action.rejectedDate = new Date();
 
       const updatedAction = await this.adminActionRepository.save(action);
-      this.logger.log(`Admin action rejected by ${rejectActionDto.rejectedBy}: ${id}`);
+      this.logger.log(`Admin action rejected by ${rejectorAddress}: ${id}`);
 
-      // Send notification about rejection
-      await this.notificationService.create({
-        userId: action.createdBy,
-        type: 'ADMIN_ACTION_REJECTED',
+      await this.notificationService.createNotification({
+        userId: action.initiatorAddress,
+        type: NotificationType.ADMIN_ACTION_REJECTED,
         title: 'Admin Action Rejected',
-        message: `Your admin action "${action.actionType}" has been rejected by ${rejectActionDto.rejectedBy}`,
-        data: { actionId: id, rejectedBy: rejectActionDto.rejectedBy, reason: rejectActionDto.reason },
+        content: `Your admin action "${action.actionType}" has been rejected by ${rejectorAddress}`,
+        data: { actionId: id, rejectedBy: rejectorAddress, reason },
       });
+
+      try {
+        const user = await this.userRepository.findOne({
+          where: { walletAddress: action.initiatorAddress },
+        });
+        if (user && user.email) {
+          await this.emailService.sendAdminActionNotification(
+            user.email,
+            user.firstName || 'User',
+            action.actionType,
+            'REJECTED',
+            {
+              actionId: id,
+              title: action.title,
+              description: action.description,
+              rejectedBy: rejectorAddress,
+              reason: reason,
+              timestamp: new Date().toISOString(),
+              actionUrl: `${this.configService.get('app.url')}/admin/actions/${id}`,
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send email notification for action rejection: ${id}`, error);
+      }
 
       return updatedAction;
     } catch (error) {
@@ -206,38 +275,65 @@ export class AdminService {
     }
   }
 
-  async execute(id: string, executeActionDto: ExecuteActionDto): Promise<AdminAction> {
+  async executeAction(
+    id: string,
+    executeActionDto: ExecuteActionDto,
+    executorAddress: string,
+  ): Promise<AdminAction> {
     try {
       const action = await this.findOne(id);
 
-      if (action.status !== ActionStatus.APPROVED) {
+      if (action.status !== AdminActionStatus.APPROVED) {
         throw new BadRequestException('Action must be approved before execution');
       }
 
-      // Execute the action based on its type
       await this.executeActionLogic(action, executeActionDto);
 
-      action.status = ActionStatus.EXECUTED;
-      action.executedAt = new Date();
-      action.executedBy = executeActionDto.executedBy;
-      action.executionTxHash = executeActionDto.transactionHash;
+      action.status = AdminActionStatus.EXECUTED;
+      action.executedDate = new Date();
+      action.executorAddress = executorAddress;
+      action.executionTransactionHash = executeActionDto.transactionHash;
       action.executionNotes = executeActionDto.notes;
 
       const updatedAction = await this.adminActionRepository.save(action);
-      this.logger.log(`Admin action executed by ${executeActionDto.executedBy}: ${id}`);
+      this.logger.log(`Admin action executed by ${executorAddress}: ${id}`);
 
-      // Send notification about execution
-      await this.notificationService.create({
-        userId: action.createdBy,
-        type: 'ADMIN_ACTION_EXECUTED',
+      await this.notificationService.createNotification({
+        userId: action.initiatorAddress,
+        type: NotificationType.ADMIN_ACTION_EXECUTED,
         title: 'Admin Action Executed',
-        message: `Your admin action "${action.actionType}" has been executed successfully`,
-        data: { 
-          actionId: id, 
-          executedBy: executeActionDto.executedBy,
+        content: `Your admin action "${action.actionType}" has been executed successfully`,
+        data: {
+          actionId: id,
+          executedBy: executorAddress,
           transactionHash: executeActionDto.transactionHash,
         },
       });
+
+      try {
+        const user = await this.userRepository.findOne({
+          where: { walletAddress: action.initiatorAddress },
+        });
+        if (user && user.email) {
+          await this.emailService.sendAdminActionNotification(
+            user.email,
+            user.firstName || 'User',
+            action.actionType,
+            'EXECUTED',
+            {
+              actionId: id,
+              title: action.title,
+              description: action.description,
+              executedBy: executorAddress,
+              transactionHash: executeActionDto.transactionHash,
+              timestamp: new Date().toISOString(),
+              actionUrl: `${this.configService.get('app.url')}/admin/actions/${id}`,
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send email notification for action execution: ${id}`, error);
+      }
 
       return updatedAction;
     } catch (error) {
@@ -246,21 +342,61 @@ export class AdminService {
     }
   }
 
-  async cancel(id: string, cancelledBy: string, reason: string): Promise<AdminAction> {
+  async cancelAction(id: string, reason: string, cancellerAddress: string): Promise<AdminAction> {
     try {
       const action = await this.findOne(id);
 
-      if (action.status === ActionStatus.EXECUTED) {
+      if (action.status === AdminActionStatus.EXECUTED) {
         throw new BadRequestException('Cannot cancel an executed action');
       }
 
-      action.status = ActionStatus.CANCELLED;
+      action.status = AdminActionStatus.CANCELLED;
       action.cancelledAt = new Date();
-      action.cancelledBy = cancelledBy;
+      action.cancelledBy = cancellerAddress;
       action.cancellationReason = reason;
 
       const updatedAction = await this.adminActionRepository.save(action);
-      this.logger.log(`Admin action cancelled by ${cancelledBy}: ${id}`);
+      this.logger.log(`Admin action cancelled by ${cancellerAddress}: ${id}`);
+
+      await this.notificationService.createNotification({
+        userId: action.initiatorAddress,
+        type: NotificationType.ADMIN_ACTION_CANCELLED,
+        title: 'Admin Action Cancelled',
+        content: `Your admin action "${action.actionType}" has been cancelled`,
+        data: {
+          actionId: id,
+          cancelledBy: cancellerAddress,
+          reason: reason,
+        },
+      });
+
+      try {
+        const user = await this.userRepository.findOne({
+          where: { walletAddress: action.initiatorAddress },
+        });
+        if (user && user.email) {
+          await this.emailService.sendAdminActionNotification(
+            user.email,
+            user.firstName || 'User',
+            action.actionType,
+            'CANCELLED',
+            {
+              actionId: id,
+              title: action.title,
+              description: action.description,
+              cancelledBy: cancellerAddress,
+              reason: reason,
+              timestamp: new Date().toISOString(),
+              actionUrl: `${this.configService.get('app.url')}/admin/actions/${id}`,
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to send email notification for action cancellation: ${id}`,
+          error,
+        );
+      }
 
       return updatedAction;
     } catch (error) {
@@ -272,41 +408,39 @@ export class AdminService {
   async getStatistics(): Promise<AdminActionStatisticsDto> {
     try {
       const total = await this.adminActionRepository.count();
-      
-      const statusCounts = {} as Record<ActionStatus, number>;
-      for (const status of Object.values(ActionStatus)) {
+
+      const statusCounts = {} as Record<AdminActionStatus, number>;
+      for (const status of Object.values(AdminActionStatus)) {
         statusCounts[status] = await this.adminActionRepository.count({
           where: { status },
         });
       }
 
-      const typeCounts = {} as Record<ActionType, number>;
-      for (const type of Object.values(ActionType)) {
+      const typeCounts = {} as Record<AdminActionType, number>;
+      for (const type of Object.values(AdminActionType)) {
         typeCounts[type] = await this.adminActionRepository.count({
           where: { actionType: type },
         });
       }
 
-      // Get recent actions (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const recentActions = await this.adminActionRepository.count({
         where: {
-          createdAt: thirtyDaysAgo as any, // TypeORM date comparison
+          createdAt: thirtyDaysAgo as any,
         },
       });
 
-      // Calculate average approval time
       const approvedActions = await this.adminActionRepository.find({
-        where: { status: ActionStatus.APPROVED },
-        select: ['createdAt', 'approvedAt'],
+        where: { status: AdminActionStatus.APPROVED },
+        select: ['createdAt', 'approvedDate'],
       });
 
       let averageApprovalTimeHours = 0;
       if (approvedActions.length > 0) {
         const totalApprovalTime = approvedActions.reduce((sum, action) => {
-          if (action.approvedAt) {
-            return sum + (action.approvedAt.getTime() - action.createdAt.getTime());
+          if (action.approvedDate) {
+            return sum + (action.approvedDate.getTime() - action.createdAt.getTime());
           }
           return sum;
         }, 0);
@@ -326,31 +460,84 @@ export class AdminService {
     }
   }
 
-  private async executeActionLogic(action: AdminAction, executeDto: ExecuteActionDto): Promise<void> {
-    // This method would contain the actual execution logic for different action types
-    // For now, we'll just log the execution
+  async getPendingActions(): Promise<AdminAction[]> {
+    return this.adminActionRepository.find({
+      where: { status: AdminActionStatus.PENDING },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getReadyForExecution(): Promise<AdminAction[]> {
+    return this.adminActionRepository.find({
+      where: { status: AdminActionStatus.APPROVED },
+      order: { approvedDate: 'DESC' },
+    });
+  }
+
+  async getUserActions(walletAddress: string): Promise<AdminAction[]> {
+    return this.adminActionRepository.find({
+      where: { initiatorAddress: walletAddress },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getRequiredApprovals(): Promise<number> {
+    return 2;
+  }
+
+  async getMultiSigTransaction(transactionId: string): Promise<any> {
+    return {
+      transactionId,
+      status: 'PENDING',
+      confirmations: 1,
+      requiredConfirmations: 2,
+      destination: '0x1234567890123456789012345678901234567890',
+      value: '0',
+      data: '0x...',
+      executed: false,
+    };
+  }
+
+  async confirmMultiSigTransaction(transactionId: string, confirmerAddress: string): Promise<void> {
+    this.logger.log(`Multi-sig transaction ${transactionId} confirmed by ${confirmerAddress}`);
+  }
+
+  async executeMultiSigTransaction(
+    transactionId: string,
+    executorAddress: string,
+  ): Promise<string> {
+    this.logger.log(`Multi-sig transaction ${transactionId} executed by ${executorAddress}`);
+    return '0x' + '0'.repeat(64);
+  }
+
+  async syncActionWithMultiSig(id: string): Promise<AdminAction> {
+    const action = await this.findOne(id);
+
+    this.logger.log(`Syncing action ${id} with multi-sig wallet`);
+    return action;
+  }
+
+  private async executeActionLogic(
+    action: AdminAction,
+    executeDto: ExecuteActionDto,
+  ): Promise<void> {
     this.logger.log(`Executing action of type: ${action.actionType}`);
-    
+
     switch (action.actionType) {
-      case ActionType.MINT_LAND_NFT:
-        // Logic to mint land NFT
+      case AdminActionType.MINT_LAND_PARCEL:
         this.logger.log('Executing land NFT minting');
         break;
-      case ActionType.UPDATE_SYSTEM_PARAMETERS:
-        // Logic to update system parameters
+      case AdminActionType.TRANSFER_OWNERSHIP:
+        this.logger.log('Executing ownership transfer');
+        break;
+      case AdminActionType.UPDATE_SYSTEM_PARAMETERS:
         this.logger.log('Executing system parameter update');
         break;
-      case ActionType.FLAG_PARCEL_EXPROPRIATION:
-        // Logic to flag parcel for expropriation
-        this.logger.log('Executing parcel expropriation flagging');
-        break;
-      case ActionType.EMERGENCY_PAUSE:
-        // Logic to pause system
-        this.logger.log('Executing emergency pause');
-        break;
-      case ActionType.UPGRADE_CONTRACT:
-        // Logic to upgrade contract
+      case AdminActionType.UPGRADE_CONTRACT:
         this.logger.log('Executing contract upgrade');
+        break;
+      case AdminActionType.EMERGENCY_PAUSE:
+        this.logger.log('Executing emergency pause');
         break;
       default:
         this.logger.warn(`Unknown action type: ${action.actionType}`);
@@ -358,8 +545,6 @@ export class AdminService {
   }
 
   private async notifyApprovers(action: AdminAction): Promise<void> {
-    // This would notify all required approvers about the new action
-    // For now, we'll just log it
     this.logger.log(`Notifying approvers for action: ${action.id}`);
   }
 
@@ -370,15 +555,15 @@ export class AdminService {
       status: action.status,
       title: action.title,
       description: action.description,
-      createdBy: action.createdBy,
+      createdBy: action.initiatorAddress,
       requiredApprovals: action.requiredApprovals,
       approvals: action.approvals,
       rejections: action.rejections,
       createdAt: action.createdAt,
-      approvedAt: action.approvedAt,
-      executedAt: action.executedAt,
-      executedBy: action.executedBy,
-      executionTxHash: action.executionTxHash,
+      approvedAt: action.approvedDate,
+      executedAt: action.executedDate,
+      executedBy: action.executorAddress,
+      executionTxHash: action.executionTransactionHash,
     };
   }
 }

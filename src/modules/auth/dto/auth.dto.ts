@@ -14,6 +14,7 @@ import {
   IsNumber,
   Min,
   Max,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
@@ -202,6 +203,11 @@ export class ChangePasswordDto {
     message: 'Password must contain uppercase, lowercase, number/special character',
   })
   newPassword: string;
+
+  @ApiPropertyOptional({ description: 'Revoke all sessions' })
+  @IsOptional()
+  @IsBoolean()
+  revokeAllSessions?: boolean;
 }
 
 export class VerifyEmailDto {
@@ -217,16 +223,12 @@ export class ResendVerificationDto {
 }
 
 export class Enable2FADto {
-  @ApiProperty({ description: 'Two-factor authentication code' })
   @IsString()
-  @MinLength(6)
-  @MaxLength(6)
+  @IsNotEmpty()
   code: string;
 
-  @ApiPropertyOptional({ description: 'Backup codes' })
-  @IsOptional()
   @IsArray()
-  @IsString({ each: true })
+  @IsOptional()
   backupCodes?: string[];
 }
 
@@ -235,7 +237,7 @@ export class Verify2FADto {
   @IsString()
   @MinLength(6)
   @MaxLength(6)
-  code: string;
+  token: string;
 }
 
 export class UpdateProfileDto {
@@ -502,4 +504,3 @@ export class AssignRoleDto {
   @IsString({ each: true })
   roleNames: string[];
 }
-

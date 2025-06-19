@@ -50,7 +50,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get blockchain status: ${error.message}`,
+        `Failed to get blockchain status: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -72,7 +72,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get balance: ${error.message}`,
+        `Failed to get balance: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -102,7 +102,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get transaction receipt: ${error.message}`,
+        `Failed to get transaction receipt: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -134,7 +134,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to call contract method: ${error.message}`,
+        `Failed to call contract method: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -174,7 +174,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to send transaction: ${error.message}`,
+        `Failed to send transaction: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -213,7 +213,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to subscribe to events: ${error.message}`,
+        `Failed to subscribe to events: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -243,7 +243,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to unsubscribe from events: ${error.message}`,
+        `Failed to unsubscribe from events: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -261,7 +261,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get gas price: ${error.message}`,
+        `Failed to get gas price: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -297,7 +297,7 @@ export class BlockchainController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to estimate gas: ${error.message}`,
+        `Failed to estimate gas: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

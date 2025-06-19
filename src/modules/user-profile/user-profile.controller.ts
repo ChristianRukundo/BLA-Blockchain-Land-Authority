@@ -17,7 +17,7 @@ import { UserProfileService } from './user-profile.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import { UserRole } from '../auth/enums/user-role.enum';
 import { ProfileStatus, KYCStatus } from './entities/user-profile.entity';
 import {
   CreateUserProfileDto,
@@ -30,14 +30,12 @@ import {
   UserProfileListResponseDto,
   UserProfileStatisticsDto,
 } from './dto/user-profile.dto';
-
 @ApiTags('user-profile')
 @Controller('user-profile')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class UserProfileController {
   constructor(private readonly userProfileService: UserProfileService) {}
-
   @Post()
   @ApiOperation({ summary: 'Create a new user profile' })
   @ApiResponse({ status: 201, description: 'User profile created successfully', type: UserProfileResponseDto })
@@ -46,12 +44,11 @@ export class UserProfileController {
       return await this.userProfileService.create(createUserProfileDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create user profile: ${error.message}`,
+        `Failed to create user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
         HttpStatus.BAD_REQUEST,
       );
     }
   }
-
   @Get()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -71,12 +68,11 @@ export class UserProfileController {
       return await this.userProfileService.findAll(page, limit, status, kycStatus);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve user profiles: ${error.message}`,
+        `Failed to retrieve user profiles: ${error instanceof Error ? error.message : 'Unknown error'}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get a user profile by ID' })
   @ApiResponse({ status: 200, description: 'User profile retrieved successfully', type: UserProfileResponseDto })
@@ -84,13 +80,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.findOne(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to retrieve user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Get('wallet/:walletAddress')
   @ApiOperation({ summary: 'Get a user profile by wallet address' })
   @ApiResponse({ status: 200, description: 'User profile retrieved successfully', type: UserProfileResponseDto })
@@ -102,13 +98,13 @@ export class UserProfileController {
       }
       return profile;
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to retrieve user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Get('email/:email')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -122,13 +118,13 @@ export class UserProfileController {
       }
       return profile;
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to retrieve user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Get('national-id/:nationalId')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -142,13 +138,13 @@ export class UserProfileController {
       }
       return profile;
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to retrieve user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id')
   @ApiOperation({ summary: 'Update a user profile' })
   @ApiResponse({ status: 200, description: 'User profile updated successfully', type: UserProfileResponseDto })
@@ -159,13 +155,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.update(id, updateUserProfileDto);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to update user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/kyc')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -178,13 +174,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.updateKYC(id, updateKYCDto);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to update KYC status: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update KYC status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/status')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -197,13 +193,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.updateStatus(id, updateProfileStatusDto.status);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to update profile status: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update profile status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/notification-preferences')
   @ApiOperation({ summary: 'Update notification preferences' })
   @ApiResponse({ status: 200, description: 'Notification preferences updated successfully', type: UserProfileResponseDto })
@@ -212,17 +208,17 @@ export class UserProfileController {
     @Body() updateNotificationPreferencesDto: UpdateNotificationPreferencesDto,
   ) {
     try {
-      const profile = await this.userProfileService.findOne(id);
-      profile.notificationPreferences = updateNotificationPreferencesDto;
-      return await this.userProfileService.update(id, profile);
+      return await this.userProfileService.update(id, {
+        notificationPreferences: updateNotificationPreferencesDto,
+      });
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to update notification preferences: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update notification preferences: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/privacy-settings')
   @ApiOperation({ summary: 'Update privacy settings' })
   @ApiResponse({ status: 200, description: 'Privacy settings updated successfully', type: UserProfileResponseDto })
@@ -231,17 +227,17 @@ export class UserProfileController {
     @Body() updatePrivacySettingsDto: UpdatePrivacySettingsDto,
   ) {
     try {
-      const profile = await this.userProfileService.findOne(id);
-      profile.privacySettings = updatePrivacySettingsDto;
-      return await this.userProfileService.update(id, profile);
+      return await this.userProfileService.update(id, {
+        privacySettings: updatePrivacySettingsDto,
+      });
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to update privacy settings: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update privacy settings: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/verify-email')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -251,13 +247,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.verifyEmail(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to verify email: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to verify email: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/verify-phone')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -267,13 +263,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.verifyPhone(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to verify phone: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to verify phone: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/enable-2fa')
   @ApiOperation({ summary: 'Enable two-factor authentication' })
   @ApiResponse({ status: 200, description: '2FA enabled successfully', type: UserProfileResponseDto })
@@ -281,13 +277,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.enableTwoFactor(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to enable 2FA: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to enable 2FA: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/disable-2fa')
   @ApiOperation({ summary: 'Disable two-factor authentication' })
   @ApiResponse({ status: 200, description: '2FA disabled successfully', type: UserProfileResponseDto })
@@ -295,13 +291,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.disableTwoFactor(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to disable 2FA: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to disable 2FA: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/accept-terms')
   @ApiOperation({ summary: 'Accept terms and conditions' })
   @ApiResponse({ status: 200, description: 'Terms accepted successfully', type: UserProfileResponseDto })
@@ -309,13 +305,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.acceptTerms(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to accept terms: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to accept terms: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Patch(':id/accept-privacy-policy')
   @ApiOperation({ summary: 'Accept privacy policy' })
   @ApiResponse({ status: 200, description: 'Privacy policy accepted successfully', type: UserProfileResponseDto })
@@ -323,13 +319,13 @@ export class UserProfileController {
     try {
       return await this.userProfileService.acceptPrivacyPolicy(id);
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to accept privacy policy: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to accept privacy policy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -340,13 +336,13 @@ export class UserProfileController {
       await this.userProfileService.remove(id);
       return { message: 'User profile deleted successfully' };
     } catch (error) {
+      const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
-        `Failed to delete user profile: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to delete user profile: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status,
       );
     }
   }
-
   @Get('statistics')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -357,7 +353,7 @@ export class UserProfileController {
       return await this.userProfileService.getStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get statistics: ${error.message}`,
+        `Failed to get statistics: ${error instanceof Error ? error.message : 'Unknown error'}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

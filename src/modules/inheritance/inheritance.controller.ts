@@ -46,7 +46,7 @@ export class InheritanceController {
       return await this.inheritanceService.createInheritance(createInheritanceDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create inheritance: ${error.message}`,
+        `Failed to create inheritance: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -71,7 +71,7 @@ export class InheritanceController {
       return await this.inheritanceService.findAll(page, limit, status, currentOwner, designatedHeir);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve inheritances: ${error.message}`,
+        `Failed to retrieve inheritances: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -86,8 +86,8 @@ export class InheritanceController {
       return await this.inheritanceService.findOne(id);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve inheritance: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve inheritance: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -105,8 +105,8 @@ export class InheritanceController {
       return inheritance;
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve inheritance: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve inheritance: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -123,8 +123,8 @@ export class InheritanceController {
       return await this.inheritanceService.update(id, updateInheritanceDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to update inheritance: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update inheritance: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -141,8 +141,8 @@ export class InheritanceController {
       return await this.inheritanceService.cancelInheritance(id, cancelData.cancelledBy, cancelData.reason);
     } catch (error) {
       throw new HttpException(
-        `Failed to cancel inheritance: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to cancel inheritance: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -156,7 +156,7 @@ export class InheritanceController {
       return await this.inheritanceService.createInheritanceRequest(createRequestDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create inheritance request: ${error.message}`,
+        `Failed to create inheritance request: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -181,7 +181,7 @@ export class InheritanceController {
       return await this.inheritanceService.getInheritanceRequests(page, limit, status, requestedBy);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve inheritance requests: ${error.message}`,
+        `Failed to retrieve inheritance requests: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -201,8 +201,8 @@ export class InheritanceController {
       return await this.inheritanceService.processInheritanceRequest(requestId, processDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to process inheritance request: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to process inheritance request: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -235,7 +235,7 @@ export class InheritanceController {
       }
     } catch (error) {
       throw new HttpException(
-        `Failed to get user inheritances: ${error.message}`,
+        `Failed to get user inheritances: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -253,7 +253,7 @@ export class InheritanceController {
       return await this.inheritanceService.getInheritanceRequests(page, limit, undefined, address);
     } catch (error) {
       throw new HttpException(
-        `Failed to get user inheritance requests: ${error.message}`,
+        `Failed to get user inheritance requests: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -269,7 +269,7 @@ export class InheritanceController {
       return await this.inheritanceService.getStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get inheritance statistics: ${error.message}`,
+        `Failed to get inheritance statistics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -283,7 +283,7 @@ export class InheritanceController {
       return await this.inheritanceService.findAll(1, 100, InheritanceStatus.ACTIVE);
     } catch (error) {
       throw new HttpException(
-        `Failed to get active inheritances: ${error.message}`,
+        `Failed to get active inheritances: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -299,7 +299,7 @@ export class InheritanceController {
       return await this.inheritanceService.getInheritanceRequests(1, 100, RequestStatus.PENDING);
     } catch (error) {
       throw new HttpException(
-        `Failed to get pending requests: ${error.message}`,
+        `Failed to get pending requests: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

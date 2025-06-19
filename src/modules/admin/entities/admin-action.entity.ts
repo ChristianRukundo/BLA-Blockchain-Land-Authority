@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum AdminActionType {
@@ -78,6 +84,10 @@ export class AdminAction {
   @Column()
   dataHash: string;
 
+  @ApiProperty({ description: 'Required number of approvals' })
+  @Column('int', { default: 1 })
+  requiredApprovals: number;
+
   @ApiProperty({ description: 'Creation date' })
   @Column('timestamp')
   createdDate: Date;
@@ -93,6 +103,14 @@ export class AdminAction {
   @ApiProperty({ description: 'Rejection date' })
   @Column('timestamp', { nullable: true })
   rejectedDate?: Date;
+
+  @ApiProperty({ description: 'Cancellation date' })
+  @Column('timestamp', { nullable: true })
+  cancelledAt?: Date;
+
+  @ApiProperty({ description: 'Cancellation by' })
+  @Column({ nullable: true })
+  cancelledBy?: string;
 
   @ApiProperty({ description: 'Executor address' })
   @Column({ nullable: true })
@@ -138,6 +156,14 @@ export class AdminAction {
   @Column('text', { nullable: true })
   executionNotes?: string;
 
+  @ApiProperty({ description: 'Approval comments by address' })
+  @Column('jsonb', { nullable: true })
+  approvalComments?: Record<string, string>;
+
+  @ApiProperty({ description: 'Rejection comments by address' })
+  @Column('jsonb', { nullable: true })
+  rejectionComments?: Record<string, string>;
+
   @ApiProperty({ description: 'Additional metadata' })
   @Column('jsonb', { nullable: true })
   metadata?: any;
@@ -150,7 +176,6 @@ export class AdminAction {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Computed properties
   get canApprove(): boolean {
     return this.status === AdminActionStatus.PENDING;
   }
@@ -168,10 +193,7 @@ export class AdminAction {
   }
 
   get isActive(): boolean {
-    return [
-      AdminActionStatus.PENDING,
-      AdminActionStatus.APPROVED,
-    ].includes(this.status);
+    return [AdminActionStatus.PENDING, AdminActionStatus.APPROVED].includes(this.status);
   }
 
   get approvalCount(): number {
@@ -198,4 +220,3 @@ export class AdminAction {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 }
-

@@ -1,20 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ethers } from 'ethers';
+import {
+  JsonRpcProvider,
+  Wallet,
+  Contract,
+  TransactionResponse,
+  TransactionReceipt,
+} from 'ethers';
 
 @Injectable()
 export class TransactionService {
   private readonly logger = new Logger(TransactionService.name);
-  private provider: ethers.providers.JsonRpcProvider;
-  private signer: ethers.Wallet;
+  private provider: JsonRpcProvider;
+  private signer: Wallet;
 
   constructor(private readonly configService: ConfigService) {}
 
-  setSigner(signer: ethers.Wallet): void {
+  setSigner(signer: Wallet): void {
     this.signer = signer;
   }
 
-  setProvider(provider: ethers.providers.JsonRpcProvider): void {
+  setProvider(provider: JsonRpcProvider): void {
     this.provider = provider;
   }
 
@@ -23,23 +29,19 @@ export class TransactionService {
     abi: any[],
     methodName: string,
     params: any[] = [],
-    value?: ethers.BigNumber,
-  ): Promise<ethers.providers.TransactionResponse> {
+    value?: BigNumber,
+  ): Promise<TransactionResponse> {
     try {
-      const contract = new ethers.Contract(contractAddress, abi, this.signer);
-      
-      // Estimate gas for the transaction
+      const contract = new Contract(contractAddress, abi, this.signer);
+
       const gasEstimate = await contract.estimateGas[methodName](...params, {
         value: value || 0,
       });
 
-      // Add 20% buffer to gas estimate
       const gasLimit = gasEstimate.mul(120).div(100);
 
-      // Get current gas price
       const gasPrice = await this.provider.getGasPrice();
 
-      // Send the transaction
       const tx = await contract[methodName](...params, {
         value: value || 0,
         gasLimit,
@@ -60,7 +62,7 @@ export class TransactionService {
       this.logger.error(`Transaction failed: ${contractAddress}.${methodName}`, {
         params,
         value: value?.toString(),
-        error: error.message,
+        error: (error as any).message,
       });
       throw error;
     }
@@ -69,9 +71,9 @@ export class TransactionService {
   async sendRawTransaction(
     to: string,
     data: string,
-    value?: ethers.BigNumber,
-    gasLimit?: ethers.BigNumber,
-  ): Promise<ethers.providers.TransactionResponse> {
+    value?: BigNumber,
+    gasLimit?: BigNumber,
+  ): Promise<TransactionResponse> {
     try {
       const nonce = await this.provider.getTransactionCount(this.signer.address);
       const gasPrice = await this.provider.getGasPrice();
@@ -100,7 +102,7 @@ export class TransactionService {
       this.logger.error('Raw transaction failed', {
         to,
         value: value?.toString(),
-        error: error.message,
+        error: (error as any).message,
       });
       throw error;
     }
@@ -109,8 +111,8 @@ export class TransactionService {
   async waitForConfirmation(
     txHash: string,
     confirmations: number = 1,
-    timeout: number = 300000, // 5 minutes
-  ): Promise<ethers.providers.TransactionReceipt> {
+    timeout: number = 300000,
+  ): Promise<TransactionReceipt> {
     try {
       this.logger.log(`Waiting for transaction confirmation: ${txHash}`, {
         confirmations,
@@ -142,10 +144,10 @@ export class TransactionService {
       abi: any[];
       methodName: string;
       params: any[];
-      value?: ethers.BigNumber;
+      value?: BigNumber;
     }>,
-  ): Promise<ethers.providers.TransactionResponse[]> {
-    const results: ethers.providers.TransactionResponse[] = [];
+  ): Promise<TransactionResponse[]> {
+    const results: TransactionResponse[] = [];
 
     for (const tx of transactions) {
       try {
@@ -158,12 +160,11 @@ export class TransactionService {
         );
         results.push(result);
 
-        // Wait a bit between transactions to avoid nonce issues
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
         this.logger.error('Batch transaction failed', {
           transaction: tx,
-          error: error.message,
+          error: (error as any).message,
         });
         throw error;
       }
@@ -178,15 +179,15 @@ export class TransactionService {
     abi: any[],
     methodName: string,
     params: any[] = [],
-    value?: ethers.BigNumber,
+    value?: BigNumber,
   ): Promise<{
-    gasEstimate: ethers.BigNumber;
-    gasPrice: ethers.BigNumber;
-    estimatedCost: ethers.BigNumber;
+    gasEstimate: BigNumber;
+    gasPrice: BigNumber;
+    estimatedCost: BigNumber;
   }> {
     try {
-      const contract = new ethers.Contract(contractAddress, abi, this.provider);
-      
+      const contract = new Contract(contractAddress, abi, this.provider);
+
       const gasEstimate = await contract.estimateGas[methodName](...params, {
         value: value || 0,
       });
@@ -204,7 +205,7 @@ export class TransactionService {
         contractAddress,
         methodName,
         params,
-        error: error.message,
+        error: (error as any).message,
       });
       throw error;
     }
@@ -212,12 +213,12 @@ export class TransactionService {
 
   async getTransactionStatus(txHash: string): Promise<{
     status: 'pending' | 'confirmed' | 'failed';
-    receipt?: ethers.providers.TransactionReceipt;
+    receipt?: TransactionReceipt;
     confirmations?: number;
   }> {
     try {
       const receipt = await this.provider.getTransactionReceipt(txHash);
-      
+
       if (!receipt) {
         return { status: 'pending' };
       }
@@ -238,26 +239,23 @@ export class TransactionService {
 
   async cancelTransaction(
     originalTxHash: string,
-    gasPrice?: ethers.BigNumber,
-  ): Promise<ethers.providers.TransactionResponse> {
+    gasPrice?: BigNumber,
+  ): Promise<TransactionResponse> {
     try {
-      // Get the original transaction
       const originalTx = await this.provider.getTransaction(originalTxHash);
       if (!originalTx) {
         throw new Error('Original transaction not found');
       }
 
-      // Check if transaction is already mined
       const receipt = await this.provider.getTransactionReceipt(originalTxHash);
       if (receipt) {
         throw new Error('Transaction already mined, cannot cancel');
       }
 
-      // Send a replacement transaction with higher gas price and same nonce
-      const newGasPrice = gasPrice || originalTx.gasPrice?.mul(110).div(100); // 10% higher
-      
+      const newGasPrice = gasPrice || originalTx.gasPrice?.mul(110).div(100);
+
       const cancelTx = await this.signer.sendTransaction({
-        to: this.signer.address, // Send to self
+        to: this.signer.address,
         value: 0,
         gasLimit: 21000,
         gasPrice: newGasPrice,
@@ -279,24 +277,21 @@ export class TransactionService {
 
   async speedUpTransaction(
     originalTxHash: string,
-    gasPrice?: ethers.BigNumber,
-  ): Promise<ethers.providers.TransactionResponse> {
+    gasPrice?: BigNumber,
+  ): Promise<TransactionResponse> {
     try {
-      // Get the original transaction
       const originalTx = await this.provider.getTransaction(originalTxHash);
       if (!originalTx) {
         throw new Error('Original transaction not found');
       }
 
-      // Check if transaction is already mined
       const receipt = await this.provider.getTransactionReceipt(originalTxHash);
       if (receipt) {
         throw new Error('Transaction already mined, cannot speed up');
       }
 
-      // Send a replacement transaction with higher gas price
-      const newGasPrice = gasPrice || originalTx.gasPrice?.mul(110).div(100); // 10% higher
-      
+      const newGasPrice = gasPrice || originalTx.gasPrice?.mul(110).div(100);
+
       const speedUpTx = await this.signer.sendTransaction({
         to: originalTx.to,
         value: originalTx.value,

@@ -9,13 +9,12 @@ import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import * as redisStore from 'cache-manager-redis-store';
 
-// Configuration
 import databaseConfig from './config/database.config';
 import appConfig from './config/app.config';
 import authConfig from './config/auth.config';
 import redisConfig from './config/redis.config';
+import emailConfig from './config/email.config';
 
-// Modules
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { UserProfileModule } from './modules/user-profile/user-profile.module';
@@ -25,62 +24,57 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ExpropriationModule } from './modules/expropriation/expropriation.module';
 import { HealthModule } from './modules/health/health.module';
+import { EmailModule } from './modules/email/email.module';
 
-// Controllers
 import { AppController } from './app.controller';
 
-// Services
 import { AppService } from './app.service';
 
 @Module({
   imports: [
-    // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, appConfig, authConfig, redisConfig],
+      load: [databaseConfig, appConfig, authConfig, redisConfig, emailConfig],
       envFilePath: ['.env.local', '.env'],
       cache: true,
     }),
 
-    // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
+      inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         ...configService.get('database'),
       }),
-      inject: [ConfigService],
     }),
 
-    // Cache (Redis)
     CacheModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        store: redisStore,
-        host: configService.get('redis.host'),
-        port: configService.get('redis.port'),
-        password: configService.get('redis.password'),
-        db: configService.get('redis.db'),
-        ttl: configService.get('redis.ttl'),
-        max: 100, // Maximum number of items in cache
-      }),
       inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        return {
+          store: redisStore,
+          host: configService.get('redis.host'),
+          port: configService.get('redis.port'),
+          password: configService.get('redis.password'),
+          db: configService.get('redis.db'),
+          ttl: configService.get('redis.ttl'),
+          max: 100,
+        };
+      },
       isGlobal: true,
     }),
 
-    // Rate Limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
+      inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         ttl: configService.get('app.throttle.ttl'),
         limit: configService.get('app.throttle.limit'),
       }),
-      inject: [ConfigService],
     }),
 
-    // Task Scheduling
     ScheduleModule.forRoot(),
 
-    // Event Emitter
     EventEmitterModule.forRoot({
       wildcard: false,
       delimiter: '.',
@@ -91,9 +85,9 @@ import { AppService } from './app.service';
       ignoreErrors: false,
     }),
 
-    // Logging
     WinstonModule.forRootAsync({
       imports: [ConfigModule],
+      inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         level: configService.get('app.logLevel'),
         format: winston.format.combine(
@@ -104,10 +98,7 @@ import { AppService } from './app.service';
         defaultMeta: { service: 'rwalandchain-backend' },
         transports: [
           new winston.transports.Console({
-            format: winston.format.combine(
-              winston.format.colorize(),
-              winston.format.simple(),
-            ),
+            format: winston.format.combine(winston.format.colorize(), winston.format.simple()),
           }),
           new winston.transports.File({
             filename: 'logs/error.log',
@@ -118,10 +109,8 @@ import { AppService } from './app.service';
           }),
         ],
       }),
-      inject: [ConfigService],
     }),
 
-    // Feature Modules
     AuthModule,
     UserModule,
     UserProfileModule,
@@ -131,9 +120,9 @@ import { AppService } from './app.service';
     AdminModule,
     ExpropriationModule,
     HealthModule,
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}
-

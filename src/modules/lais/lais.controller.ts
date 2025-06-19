@@ -18,7 +18,7 @@ import { LaisService } from './lais.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import { UserRole } from '../auth/enums/user-role.enum';
 import { LandUseType, ComplianceStatus, ExpropriationStatus } from './entities/land-parcel.entity';
 import { ZoneType, ZoneStatus, PlanningAuthority } from './entities/land-use-zone.entity';
 import {
@@ -54,7 +54,7 @@ export class LaisController {
       return await this.laisService.createLandParcel(createLandParcelDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create land parcel: ${error.message}`,
+        `Failed to create land parcel: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -88,7 +88,7 @@ export class LaisController {
       );
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land parcels: ${error.message}`,
+        `Failed to retrieve land parcels: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -102,9 +102,9 @@ export class LaisController {
     try {
       return await this.laisService.findLandParcelById(id);
     } catch (error) {
-      throw new HttpException(
-        `Failed to retrieve land parcel: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+     throw new HttpException(
+        `Failed to retrieve land parcels: ${(error as any).message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -122,8 +122,8 @@ export class LaisController {
       return parcel;
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land parcel: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve land parcel: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -141,8 +141,8 @@ export class LaisController {
       return parcel;
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land parcel: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve land parcel: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -155,7 +155,7 @@ export class LaisController {
       return await this.laisService.findLandParcelsByOwner(ownerAddress);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land parcels: ${error.message}`,
+        `Failed to retrieve land parcels: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -175,8 +175,8 @@ export class LaisController {
       return await this.laisService.updateLandParcel(id, updateLandParcelDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to update land parcel: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update land parcel: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -193,8 +193,8 @@ export class LaisController {
       return { message: 'Land parcel deleted successfully' };
     } catch (error) {
       throw new HttpException(
-        `Failed to delete land parcel: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to delete land parcel: ${( error as any).message}`,
+        ( error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -209,7 +209,7 @@ export class LaisController {
       return await this.laisService.findParcelsWithinRadius(longitude, latitude, radiusMeters);
     } catch (error) {
       throw new HttpException(
-        `Failed to find parcels within radius: ${error.message}`,
+        `Failed to find parcels within radius: ${( error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -224,7 +224,7 @@ export class LaisController {
       return await this.laisService.findParcelsWithinBounds(minLng, minLat, maxLng, maxLat);
     } catch (error) {
       throw new HttpException(
-        `Failed to find parcels within bounds: ${error.message}`,
+        `Failed to find parcels within bounds: ${( error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -238,7 +238,7 @@ export class LaisController {
       return await this.laisService.findAdjacentParcels(id);
     } catch (error) {
       throw new HttpException(
-        `Failed to find adjacent parcels: ${error.message}`,
+        `Failed to find adjacent parcels: ${( error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -252,7 +252,7 @@ export class LaisController {
       return await this.laisService.findIntersectingParcels(geometryQueryDto.geometry);
     } catch (error) {
       throw new HttpException(
-        `Failed to find intersecting parcels: ${error.message}`,
+        `Failed to find intersecting parcels: ${( error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -272,7 +272,7 @@ export class LaisController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to calculate parcel area: ${error.message}`,
+        `Failed to calculate parcel area: ${( error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -289,7 +289,7 @@ export class LaisController {
       return await this.laisService.createCadastralData(createCadastralDataDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create cadastral data: ${error.message}`,
+        `Failed to create cadastral data: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -303,7 +303,7 @@ export class LaisController {
       return await this.laisService.findCadastralDataByParcel(parcelId);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve cadastral data: ${error.message}`,
+        `Failed to retrieve cadastral data: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -322,8 +322,8 @@ export class LaisController {
       return await this.laisService.updateCadastralData(id, updateCadastralDataDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to update cadastral data: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update cadastral data: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -339,7 +339,7 @@ export class LaisController {
       return await this.laisService.createLandUseZone(createLandUseZoneDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create land use zone: ${error.message}`,
+        `Failed to create land use zone: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -360,7 +360,7 @@ export class LaisController {
       return await this.laisService.findAllLandUseZones(zoneType, zoneStatus, planningAuthority);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land use zones: ${error.message}`,
+        `Failed to retrieve land use zones: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -375,8 +375,8 @@ export class LaisController {
       return await this.laisService.findLandUseZoneById(id);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve land use zone: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve land use zone: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -395,8 +395,8 @@ export class LaisController {
       return await this.laisService.updateLandUseZone(id, updateLandUseZoneDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to update land use zone: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update land use zone: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -412,7 +412,7 @@ export class LaisController {
       return await this.laisService.getLandParcelStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get land parcel statistics: ${error.message}`,
+        `Failed to get land parcel statistics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -428,7 +428,7 @@ export class LaisController {
       return await this.laisService.getCadastralDataStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get cadastral data statistics: ${error.message}`,
+        `Failed to get cadastral data statistics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

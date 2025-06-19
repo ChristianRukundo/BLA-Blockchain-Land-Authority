@@ -8,17 +8,24 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, LessThan, Between } from 'typeorm';
+import { Repository, MoreThan, LessThan, Between, In } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
+import * as ethers from 'ethers';
 import * as speakeasy from 'speakeasy';
-import * as QRCode from 'qrcode';
-import { ethers } from 'ethers';
+import * as qrcode from 'qrcode';
+import { v4 as uuidv4 } from 'uuid';
 import { User, UserStatus, AuthProvider } from './entities/user.entity';
 import { UserRole } from './entities/user-role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { LoginAttempt, LoginAttemptResult, LoginMethod } from './entities/login-attempt.entity';
+import { EmailService } from '../email/email.service';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../notification/enums/notification.enum';
+import * as geoip from 'geoip-lite';
+import * as UAParser from 'ua-parser-js';
 import {
   RegisterDto,
   LoginDto,
@@ -46,23 +53,25 @@ export class AuthService {
 
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
-    @InjectRepository(UserRole)
-    private roleRepository: Repository<UserRole>,
+    private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
-    private refreshTokenRepository: Repository<RefreshToken>,
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(LoginAttempt)
-    private loginAttemptRepository: Repository<LoginAttempt>,
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly loginAttemptRepository: Repository<LoginAttempt>,
+    @InjectRepository(UserRole)
+    private readonly roleRepository: Repository<UserRole>,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
+    private readonly notificationService: NotificationService,
   ) {}
 
-  // Authentication Methods
+  
 
   async register(registerDto: RegisterDto, ipAddress: string, userAgent?: string): Promise<any> {
     this.logger.log(`Registration attempt for: ${registerDto.email || registerDto.walletAddress}`);
 
-    // Validate registration data
+    
     if (!registerDto.email && !registerDto.walletAddress) {
       throw new BadRequestException('Either email or wallet address is required');
     }
@@ -71,25 +80,25 @@ export class AuthService {
       throw new BadRequestException('Password is required for email registration');
     }
 
-    // Check if user already exists
+    
     const existingUser = await this.findExistingUser(registerDto.email, registerDto.walletAddress);
     if (existingUser) {
       throw new ConflictException('User already exists with this email or wallet address');
     }
 
-    // Create user
+    
     const user = this.userRepository.create({
       ...registerDto,
-      provider: registerDto.walletAddress ? AuthProvider.WALLET : AuthProvider.EMAIL,
-      status: registerDto.email ? UserStatus.PENDING_VERIFICATION : UserStatus.ACTIVE,
+      provider: registerDto.walletAddress ? AuthProvider.WALLET : AuthProvider.LOCAL,
+      status: registerDto.email ? UserStatus.PENDING : UserStatus.ACTIVE,
     });
 
-    // Generate email verification token if email provided
+    
     if (registerDto.email) {
       user.generateEmailVerificationToken();
     }
 
-    // Assign default role
+    
     const defaultRole = await this.roleRepository.findOne({ where: { name: 'USER' } });
     if (defaultRole) {
       user.roles = [defaultRole];
@@ -97,7 +106,7 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(user);
 
-    // Log registration attempt
+    
     await this.logLoginAttempt({
       userId: savedUser.id,
       emailOrWallet: registerDto.email || registerDto.walletAddress,
@@ -108,7 +117,7 @@ export class AuthService {
       walletAddress: registerDto.walletAddress,
     });
 
-    // Generate tokens if user is active
+    
     if (savedUser.status === UserStatus.ACTIVE) {
       const tokens = await this.generateTokens(savedUser, ipAddress, userAgent);
       return {
@@ -131,7 +140,7 @@ export class AuthService {
     let user: User;
     let loginMethod: LoginMethod;
 
-    // Determine login method and find user
+    
     if (loginDto.walletAddress && loginDto.signature) {
       user = await this.validateWalletLogin(loginDto);
       loginMethod = LoginMethod.WALLET_SIGNATURE;
@@ -142,7 +151,7 @@ export class AuthService {
       throw new BadRequestException('Invalid login credentials provided');
     }
 
-    // Check if account is locked
+    
     if (user.isLocked) {
       await this.logLoginAttempt({
         userId: user.id,
@@ -156,7 +165,7 @@ export class AuthService {
       throw new UnauthorizedException('Account is temporarily locked');
     }
 
-    // Check if account is active
+    
     if (!user.isActive) {
       const result = user.status === UserStatus.SUSPENDED 
         ? LoginAttemptResult.FAILED_ACCOUNT_SUSPENDED
@@ -175,7 +184,7 @@ export class AuthService {
       throw new UnauthorizedException(`Account is ${user.status.toLowerCase()}`);
     }
 
-    // Check if 2FA is required
+    
     if (user.twoFactorEnabled) {
       if (!loginDto.twoFactorCode) {
         return {
@@ -199,14 +208,14 @@ export class AuthService {
       }
     }
 
-    // Update user login info
+    
     user.updateLastLogin();
     await this.userRepository.save(user);
 
-    // Generate tokens
+    
     const tokens = await this.generateTokens(user, ipAddress, userAgent, loginDto.deviceId, loginDto.deviceName);
 
-    // Log successful login
+    
     await this.logLoginAttempt({
       userId: user.id,
       emailOrWallet: loginDto.email || loginDto.walletAddress,
@@ -266,14 +275,14 @@ export class AuthService {
       throw new UnauthorizedException('User account is not active');
     }
 
-    // Revoke old token
+    
     refreshToken.revoke('Replaced by new token', user.id, ipAddress);
     await this.refreshTokenRepository.save(refreshToken);
 
-    // Generate new tokens
+    
     const tokens = await this.generateTokens(user, ipAddress, userAgent, refreshTokenDto.deviceId);
 
-    // Log refresh token usage
+    
     await this.logLoginAttempt({
       userId: user.id,
       emailOrWallet: user.email || user.walletAddress,
@@ -298,7 +307,7 @@ export class AuthService {
         await this.refreshTokenRepository.save(token);
       }
     } else {
-      // Revoke all refresh tokens for user
+      
       await this.refreshTokenRepository.update(
         { userId, isRevoked: false },
         { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logout all devices' }
@@ -313,7 +322,7 @@ export class AuthService {
     );
   }
 
-  // Password Management
+  
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<void> {
     const user = await this.userRepository.findOne({
@@ -321,15 +330,20 @@ export class AuthService {
     });
 
     if (!user) {
-      // Don't reveal if email exists
+      
       return;
     }
 
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('Account is not active');
+    }
+
+    
     const resetToken = user.generatePasswordResetToken();
     await this.userRepository.save(user);
 
-    // TODO: Send password reset email
-    this.logger.log(`Password reset token generated for user ${user.id}: ${resetToken}`);
+    
+    this.logger.log(`Password reset token for ${user.email}: ${resetToken}`);
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<void> {
@@ -341,29 +355,49 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Invalid or expired reset token');
+      throw new BadRequestException('Invalid or expired password reset token');
     }
 
+    
     user.resetPassword(resetPasswordDto.newPassword);
     await this.userRepository.save(user);
+
+    
+    await this.refreshTokenRepository.update(
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password reset' }
+    );
   }
 
   async changePassword(userId: string, changePasswordDto: ChangePasswordDto): Promise<void> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
+    
     const isValidPassword = await user.validatePassword(changePasswordDto.currentPassword);
     if (!isValidPassword) {
       throw new BadRequestException('Current password is incorrect');
     }
 
-    user.password = changePasswordDto.newPassword;
+    
+    user.resetPassword(changePasswordDto.newPassword);
     await this.userRepository.save(user);
+
+    
+    if (changePasswordDto.revokeAllSessions) {
+      await this.refreshTokenRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password changed' }
+      );
+    }
   }
 
-  // Email Verification
+  
 
   async verifyEmail(verifyEmailDto: VerifyEmailDto): Promise<void> {
     const user = await this.userRepository.findOne({
@@ -374,17 +408,20 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Invalid or expired verification token');
+      throw new BadRequestException('Invalid or expired email verification token');
     }
 
     user.verifyEmail();
     await this.userRepository.save(user);
   }
 
-  async resendVerification(email: string): Promise<void> {
-    const user = await this.userRepository.findOne({ where: { email } });
+  async resendVerificationEmail(userId: string): Promise<string> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
     if (!user) {
-      return; // Don't reveal if email exists
+      throw new NotFoundException('User not found');
     }
 
     if (user.emailVerified) {
@@ -394,27 +431,77 @@ export class AuthService {
     const token = user.generateEmailVerificationToken();
     await this.userRepository.save(user);
 
-    // TODO: Send verification email
-    this.logger.log(`Email verification token generated for user ${user.id}: ${token}`);
+    
+    this.logger.log(`Email verification token for ${user.email}: ${token}`);
+
+    return token;
   }
 
-  // Two-Factor Authentication
+  
 
+  /**
+   * Generates a new 2FA secret for a user and returns the secret and QR code URL
+   * @param userId The user ID
+   * @returns The 2FA secret and QR code URL
+   */
   async generate2FASecret(userId: string): Promise<{ secret: string; qrCodeUrl: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
+    
     const secret = speakeasy.generateSecret({
-      name: user.email || user.walletAddress,
+      name: `RwaLandChain:${user.email || user.walletAddress}`,
       issuer: 'RwaLandChain',
+      length: 20, 
     });
 
-    user.twoFactorSecret = secret.base32;
+    
+    user.twoFactorTempSecret = secret.base32;
     await this.userRepository.save(user);
 
-    const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+    
+    const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+
+    
+    const backupCodes = this.generateBackupCodes();
+    
+    
+    user.twoFactorBackupCodes = await Promise.all(
+      backupCodes.map(async (code) => await bcrypt.hash(code, 10))
+    );
+    await this.userRepository.save(user);
+
+    
+    if (user.email) {
+      try {
+        await this.emailService.send2FASetupEmail(
+          user.email,
+          user.firstName || user.username || 'User',
+          qrCodeUrl,
+          secret.base32,
+          backupCodes
+        );
+
+        
+        await this.notificationService.createNotification({
+          userId: user.id,
+          type: NotificationType.TWO_FACTOR_ENABLED,
+          title: '2FA Setup Initiated',
+          data: { 
+            timestamp: new Date().toISOString(),
+            ip: user.lastLoginIp,
+            device: user.lastLoginUserAgent,
+          },
+        });
+
+        this.logger.log(`2FA setup email sent to user ${userId}`);
+      } catch (error) {
+        this.logger.error(`Failed to send 2FA setup email to user ${userId}:`, error);
+        
+      }
+    }
 
     return {
       secret: secret.base32,
@@ -422,81 +509,284 @@ export class AuthService {
     };
   }
 
-  async enable2FA(userId: string, enable2FADto: Enable2FADto): Promise<string[]> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user || !user.twoFactorSecret) {
-      throw new BadRequestException('2FA secret not found');
+  /**
+   * Generates backup codes for 2FA
+   * @param count Number of backup codes to generate
+   * @param length Length of each backup code
+   * @returns Array of backup codes
+   */
+  private generateBackupCodes(count = 10, length = 8): string[] {
+    const codes: string[] = [];
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    
+    for (let i = 0; i < count; i++) {
+      let code = '';
+      for (let j = 0; j < length; j++) {
+        code += characters.charAt(Math.floor(Math.random() * characters.length));
+      }
+      
+      code = `${code.substring(0, 4)}-${code.substring(4)}`;
+      codes.push(code);
     }
-
-    const isValid = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
-      encoding: 'base32',
-      token: enable2FADto.code,
-      window: 2,
-    });
-
-    if (!isValid) {
-      throw new BadRequestException('Invalid 2FA code');
-    }
-
-    // Generate backup codes
-    const backupCodes = Array.from({ length: 10 }, () => 
-      crypto.randomBytes(4).toString('hex').toUpperCase()
-    );
-
-    user.twoFactorEnabled = true;
-    user.backupCodes = backupCodes;
-    await this.userRepository.save(user);
-
-    return backupCodes;
+    
+    return codes;
   }
 
-  async disable2FA(userId: string, code: string): Promise<void> {
+  /**
+   * Enables 2FA for a user
+   * @param userId The user ID
+   * @param enable2FADto The 2FA setup data
+   * @returns Array of backup codes
+   */
+  async enable2FA(userId: string, enable2FADto: Enable2FADto): Promise<string[]> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    const isValid = await this.verify2FA(user, code);
-    if (!isValid) {
-      throw new BadRequestException('Invalid 2FA code');
+    if (!user.twoFactorTempSecret) {
+      throw new BadRequestException('2FA setup not initiated');
     }
 
-    user.twoFactorEnabled = false;
-    user.twoFactorSecret = null;
-    user.backupCodes = null;
+    
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorTempSecret,
+      encoding: 'base32',
+      token: enable2FADto.code,
+      window: 1, 
+    });
+
+    if (!verified) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    
+    user.twoFactorEnabled = true;
+    user.twoFactorSecret = user.twoFactorTempSecret;
+    user.twoFactorTempSecret = null;
     await this.userRepository.save(user);
+
+    
+    let backupCodes = enable2FADto.backupCodes;
+    if (!backupCodes || backupCodes.length === 0) {
+      backupCodes = this.generateBackupCodes();
+      
+      
+      user.twoFactorBackupCodes = await Promise.all(
+        backupCodes.map(async (code) => await bcrypt.hash(code, 10))
+      );
+      await this.userRepository.save(user);
+    }
+
+    
+    await this.notificationService.createNotification({
+      userId: user.id,
+      type: NotificationType.TWO_FACTOR_ENABLED,
+      title: '2FA Enabled',
+      data: { 
+        timestamp: new Date().toISOString(),
+        ip: user.lastLoginIp,
+        device: user.lastLoginUserAgent,
+      },
+    });
+
+    
+    if (user.email) {
+      try {
+        await this.emailService.sendEmail(
+          user.email,
+          '2FA Enabled on Your Account',
+          'login-alert',
+          {
+            name: user.firstName || user.username || 'User',
+            message: 'Two-factor authentication has been enabled for your account. Your account is now more secure.',
+            ipAddress: user.lastLoginIp || 'Unknown',
+            location: this.getLocationFromIp(user.lastLoginIp) || 'Unknown',
+            deviceInfo: user.lastLoginUserAgent || 'Unknown',
+            loginTime: new Date().toLocaleString(),
+            securitySettingsUrl: `${this.configService.get('email.appUrl')}/settings/security`,
+          }
+        );
+      } catch (error) {
+        this.logger.error(`Failed to send 2FA enabled email to user ${userId}:`, error);
+        
+      }
+    }
+
+    return backupCodes;
   }
 
-  private async verify2FA(user: User, code: string): Promise<boolean> {
-    if (!user.twoFactorSecret) {
+  /**
+   * Disables 2FA for a user
+   * @param userId The user ID
+   * @param verificationCode The verification code
+   */
+  async disable2FA(userId: string, verificationCode: string): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.twoFactorEnabled) {
+      throw new BadRequestException('2FA is not enabled');
+    }
+
+    
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: verificationCode,
+      window: 1, 
+    });
+
+    if (!verified) {
+      
+      const isValidBackupCode = await this.validateBackupCode(user, verificationCode);
+      if (!isValidBackupCode) {
+        throw new BadRequestException('Invalid verification code');
+      }
+    }
+
+    
+    user.twoFactorEnabled = false;
+    user.twoFactorSecret = null;
+    user.twoFactorBackupCodes = [];
+    await this.userRepository.save(user);
+
+    
+    await this.notificationService.createNotification({
+      userId: user.id,
+      type: NotificationType.TWO_FACTOR_DISABLED,
+      title: '2FA Disabled',
+
+      data: { 
+        timestamp: new Date().toISOString(),
+        ip: user.lastLoginIp,
+        device: user.lastLoginUserAgent,
+      },
+    });
+
+    
+    if (user.email) {
+      try {
+        await this.emailService.sendEmail(
+          user.email,
+          '2FA Disabled on Your Account',
+          'login-alert',
+          {
+            name: user.firstName || user.username || 'User',
+            message: 'Two-factor authentication has been disabled for your account. If you did not make this change, please contact support immediately.',
+            ipAddress: user.lastLoginIp || 'Unknown',
+            location: this.getLocationFromIp(user.lastLoginIp) || 'Unknown',
+            deviceInfo: user.lastLoginUserAgent || 'Unknown',
+            loginTime: new Date().toLocaleString(),
+            securitySettingsUrl: `${this.configService.get('email.appUrl')}/settings/security`,
+          }
+        );
+      } catch (error) {
+        this.logger.error(`Failed to send 2FA disabled email to user ${userId}:`, error);
+        
+      }
+    }
+  }
+
+  /**
+   * Validates a 2FA backup code
+   * @param user The user
+   * @param code The backup code
+   * @returns Whether the backup code is valid
+   */
+  private async validateBackupCode(user: User, code: string): Promise<boolean> {
+    if (!user.twoFactorBackupCodes || user.twoFactorBackupCodes.length === 0) {
       return false;
     }
 
-    // Check TOTP code
-    const isValidTOTP = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
-      encoding: 'base32',
-      token: code,
-      window: 2,
-    });
-
-    if (isValidTOTP) {
-      return true;
-    }
-
-    // Check backup codes
-    if (user.backupCodes && user.backupCodes.includes(code.toUpperCase())) {
-      // Remove used backup code
-      user.backupCodes = user.backupCodes.filter(bc => bc !== code.toUpperCase());
-      await this.userRepository.save(user);
-      return true;
+    for (let i = 0; i < user.twoFactorBackupCodes.length; i++) {
+      const isValid = await bcrypt.compare(code, user.twoFactorBackupCodes[i]);
+      if (isValid) {
+        
+        user.twoFactorBackupCodes.splice(i, 1);
+        await this.userRepository.save(user);
+        return true;
+      }
     }
 
     return false;
   }
 
-  // User Management
+  /**
+   * Gets location information from an IP address
+   * @param ip The IP address
+   * @returns Location string
+   */
+  private getLocationFromIp(ip: string): string | null {
+    if (!ip || ip === 'localhost' || ip === '127.0.0.1' || ip.startsWith('192.168.')) {
+      return 'Local Network';
+    }
+    
+    try {
+      const geo = geoip.lookup(ip);
+      if (geo) {
+        return `${geo.city || ''}, ${geo.region || ''}, ${geo.country || ''}`.replace(/, ,/g, ',').replace(/^,|,$/g, '');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to get location from IP ${ip}:`, error);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Gets device information from a user agent string
+   * @param userAgent The user agent string
+   * @returns Device information string
+   */
+  // private getDeviceInfo(userAgent: string): string {
+  //   if (!userAgent) {
+  //     return 'Unknown Device';
+  //   }
+    
+  //   try {
+  //     const parser = new UAParser(userAgent);
+  //     const result = parser.getResult();
+  //     return `${result.browser.name || 'Unknown'} on ${result.os.name || 'Unknown'} ${result.os.version || ''}`;
+  //   } catch (error) {
+  //     this.logger.error(`Failed to parse user agent ${userAgent}:`, error);
+  //     return 'Unknown Device';
+  //   }
+  // }
+
+  async verify2FA(user: User, token: string): Promise<boolean> {
+    if (!user.twoFactorSecret) {
+      throw new BadRequestException('Two-factor authentication is not enabled');
+    }
+
+    return speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token,
+    });
+  }
+
+  async confirm2FA(userId: string, verify2FADto: Verify2FADto): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const isValid = await this.verify2FA(user, verify2FADto.token);
+    if (!isValid) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    user.twoFactorEnabled = true;
+    await this.userRepository.save(user);
+  }
+
+  
 
   async getProfile(userId: string): Promise<User> {
     const user = await this.userRepository.findOne({
@@ -512,7 +802,10 @@ export class AuthService {
   }
 
   async updateProfile(userId: string, updateProfileDto: UpdateProfileDto): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -579,12 +872,24 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    const user = this.userRepository.create(createUserDto);
-
-    if (createUserDto.roles) {
-      const roles = await this.roleRepository.findByIds(createUserDto.roles);
-      user.roles = roles;
+    let roles: UserRole[] = [];
+    if (createUserDto.roles && createUserDto.roles.length > 0) {
+      roles = await this.roleRepository.findBy({ 
+        name: In(createUserDto.roles) 
+      });
+    } else {
+      const defaultRole = await this.roleRepository.findOne({ where: { name: 'USER' } });
+      if (defaultRole) {
+        roles = [defaultRole];
+      }
     }
+
+    const user = this.userRepository.create({
+      ...createUserDto,
+      status: createUserDto.status || UserStatus.ACTIVE,
+      emailVerified: createUserDto.emailVerified || false,
+      roles,
+    });
 
     return this.userRepository.save(user);
   }
@@ -616,7 +921,7 @@ export class AuthService {
     }
   }
 
-  // Role Management
+  
 
   async getRoles(): Promise<UserRole[]> {
     return this.roleRepository.find({ order: { priority: 'ASC', name: 'ASC' } });
@@ -681,7 +986,7 @@ export class AuthService {
     return this.userRepository.save(user);
   }
 
-  // Login Attempts
+  
 
   async getLoginAttempts(query: LoginAttemptQueryDto): Promise<any> {
     const queryBuilder = this.loginAttemptRepository.createQueryBuilder('attempt')
@@ -736,7 +1041,7 @@ export class AuthService {
     };
   }
 
-  // Helper Methods
+  
 
   private async findExistingUser(email?: string, walletAddress?: string): Promise<User | null> {
     if (email && walletAddress) {
@@ -780,9 +1085,9 @@ export class AuthService {
       throw new BadRequestException('Wallet address, signature, and message are required');
     }
 
-    // Verify signature
+    
     try {
-      const recoveredAddress = ethers.utils.verifyMessage(message, signature);
+      const recoveredAddress = ethers.verifyMessage(message, signature);
       if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
         throw new UnauthorizedException('Invalid signature');
       }
@@ -790,7 +1095,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid signature');
     }
 
-    // Find user by wallet address
+    
     const user = await this.userRepository.findOne({
       where: { walletAddress: walletAddress.toLowerCase() },
       relations: ['roles'],
@@ -820,11 +1125,11 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshTokenValue = crypto.randomBytes(32).toString('hex');
 
-    // Create refresh token record
+    
     const refreshToken = this.refreshTokenRepository.create({
       token: refreshTokenValue,
       userId: user.id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), 
       createdByIp: ipAddress,
       userAgent,
       deviceId,
@@ -837,7 +1142,7 @@ export class AuthService {
       accessToken,
       refreshToken: refreshTokenValue,
       tokenType: 'Bearer',
-      expiresIn: 3600, // 1 hour
+      expiresIn: 3600, 
     };
   }
 
@@ -857,4 +1162,3 @@ export class AuthService {
     }
   }
 }
-

@@ -1,4 +1,14 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsBoolean, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  IsBoolean,
+  IsArray,
+  IsInt,
+  Min,
+  IsUUID,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { AdminActionType, AdminActionStatus } from '../entities/admin-action.entity';
@@ -39,6 +49,21 @@ export class CreateAdminActionDto {
   @ApiPropertyOptional({ description: 'Additional metadata' })
   @IsOptional()
   metadata?: any;
+
+  @ApiPropertyOptional({ description: 'Required number of approvals' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  requiredApprovals?: number = 1;
+
+  @ApiPropertyOptional({ description: 'Action data' })
+  @IsOptional()
+  actionData?: any;
+
+  @ApiPropertyOptional({ description: 'Reason for the action' })
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 export class UpdateAdminActionDto {
@@ -222,16 +247,34 @@ export class AdminActionFilterDto {
 }
 
 export class ApproveActionDto {
+  @ApiProperty({ description: 'Approver wallet address' })
+  @IsString()
+  approvedBy: string;
+
   @ApiPropertyOptional({ description: 'Approval notes' })
   @IsOptional()
   @IsString()
-  notes?: string;
+  comment?: string;
+}
+
+export class RejectActionDto {
+  @ApiProperty({ description: 'Rejecter wallet address' })
+  @IsString()
+  rejectedBy: string;
+
+  @ApiProperty({ description: 'Rejection reason' })
+  @IsString()
+  reason: string;
 }
 
 export class ExecuteActionDto {
+  @ApiProperty({ description: 'Executor wallet address' })
+  @IsString()
+  executedBy: string;
+
   @ApiProperty({ description: 'Execution transaction hash' })
   @IsString()
-  executionTransactionHash: string;
+  transactionHash: string;
 
   @ApiPropertyOptional({ description: 'Execution notes' })
   @IsOptional()
@@ -239,3 +282,77 @@ export class ExecuteActionDto {
   notes?: string;
 }
 
+export class AdminActionResponseDto {
+  @ApiProperty({ description: 'Action ID' })
+  id: string;
+
+  @ApiProperty({ description: 'Action type', enum: AdminActionType })
+  actionType: AdminActionType;
+
+  @ApiProperty({ description: 'Action status', enum: AdminActionStatus })
+  status: AdminActionStatus;
+
+  @ApiProperty({ description: 'Action title' })
+  title: string;
+
+  @ApiProperty({ description: 'Action description' })
+  description: string;
+
+  @ApiProperty({ description: 'Creator wallet address' })
+  createdBy: string;
+
+  @ApiProperty({ description: 'Required approvals' })
+  requiredApprovals: number;
+
+  @ApiProperty({ description: 'Approvals' })
+  approvals: string[];
+
+  @ApiProperty({ description: 'Rejections' })
+  rejections: string[];
+
+  @ApiProperty({ description: 'Creation date' })
+  createdAt: Date;
+
+  @ApiPropertyOptional({ description: 'Approval date' })
+  approvedAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Execution date' })
+  executedAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Executor address' })
+  executedBy?: string;
+
+  @ApiPropertyOptional({ description: 'Execution transaction hash' })
+  executionTxHash?: string;
+}
+
+export class AdminActionListResponseDto {
+  @ApiProperty({ description: 'List of admin actions', type: [AdminActionResponseDto] })
+  actions: AdminActionResponseDto[];
+
+  @ApiProperty({ description: 'Total number of actions' })
+  total: number;
+
+  @ApiProperty({ description: 'Current page' })
+  page: number;
+
+  @ApiProperty({ description: 'Items per page' })
+  limit: number;
+}
+
+export class AdminActionStatisticsDto {
+  @ApiProperty({ description: 'Total number of actions' })
+  totalActions: number;
+
+  @ApiProperty({ description: 'Actions by status' })
+  actionsByStatus: Record<AdminActionStatus, number>;
+
+  @ApiProperty({ description: 'Actions by type' })
+  actionsByType: Record<AdminActionType, number>;
+
+  @ApiProperty({ description: 'Recent actions (last 30 days)' })
+  recentActions: number;
+
+  @ApiProperty({ description: 'Average approval time in hours' })
+  averageApprovalTimeHours: number;
+}

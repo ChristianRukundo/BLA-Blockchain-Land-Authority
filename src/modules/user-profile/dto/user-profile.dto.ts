@@ -141,7 +141,7 @@ export class CreateUserProfileDto {
 
 export class UpdateUserProfileDto extends PartialType(CreateUserProfileDto) {
   @ApiProperty({ description: 'Wallet address cannot be updated', required: false })
-  walletAddress?: never; // Prevent wallet address updates
+  override walletAddress?: never; 
 }
 
 export class UpdateKYCDto {
@@ -210,6 +210,7 @@ export class UpdateNotificationPreferencesDto {
   @ApiProperty({ description: 'Expropriation notice notifications enabled' })
   @IsBoolean()
   expropriationNotices: boolean;
+
 }
 
 export class UpdatePrivacySettingsDto {

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      background-color: #f9fafb;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      text-align: center;
+      padding: 20px 0;
+      border-bottom: 1px solid #eaeaea;
+    }
+    .content {
+      padding: 30px 20px;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #10b981;
+      color: #ffffff !important;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      margin: 20px 0;
+      transition: background-color 0.2s;
+    }
+    .button:hover {
+      background-color: #059669;
+    }
+    .benefits {
+      background-color: #f3f4f6;
+      padding: 20px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    .benefit-item {
+      margin-bottom: 10px;
+      padding-left: 24px;
+      position: relative;
+    }
+    .benefit-item:before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #10b981;
+      font-weight: bold;
+    }
+    .expiry-notice {
+      background-color: #fff3cd;
+      border: 1px solid #ffeeba;
+      color: #856404;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-size: 0.875rem;
+      border-top: 1px solid #eaeaea;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Verify Your Email Address</h1>
+    </div>
+    <div class="content">
+      <p>Hello {{name}},</p>
+      <p>Thank you for registering with RwaLandChain. To complete your registration and access all features, please verify your email address by clicking the button below:</p>
+
+      <div style="text-align: center;">
+        <a href="{{verifyUrl}}" class="button">Verify Email Address</a>
+      </div>
+
+      <div class="expiry-notice">
+        <strong>Note:</strong> This verification link will expire in {{expiryHours}} hours.
+      </div>
+
+      <div class="benefits">
+        <h3>Benefits of verifying your email:</h3>
+        <div class="benefit-item">Access to all platform features</div>
+        <div class="benefit-item">Receive important notifications</div>
+        <div class="benefit-item">Enhanced account security</div>
+        <div class="benefit-item">Transaction confirmations</div>
+      </div>
+
+      <p>If you didn't create an account with RwaLandChain, please ignore this email or contact our support team at <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>.</p>
+    </div>
+    <div class="footer">
+      <p>This email was sent by RwaLandChain. Please do not reply to this email.</p>
+      <p>© {{currentYear}} RwaLandChain. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+

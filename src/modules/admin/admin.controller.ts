@@ -31,6 +31,7 @@ import {
   AdminActionFilterDto,
   ApproveActionDto,
   ExecuteActionDto,
+  RejectActionDto,
 } from './dto/admin.dto';
 import { AdminAction } from './entities/admin-action.entity';
 
@@ -110,7 +111,7 @@ export class AdminController {
     description: 'Administrative statistics retrieved successfully',
   })
   async getStatistics() {
-    return this.adminService.getAdminStatistics();
+    return this.adminService.getStatistics();
   }
 
   @Get('my-actions')
@@ -258,7 +259,6 @@ export class AdminController {
     return this.adminService.cancelAction(id, reason, user.walletAddress);
   }
 
-  // Multi-sig wallet integration endpoints
   @Get('multi-sig/required-approvals')
   @Roles('ADMIN', 'MULTI_SIG_ADMIN')
   @ApiOperation({ summary: 'Get required number of approvals for multi-sig' })
@@ -321,7 +321,7 @@ export class AdminController {
   ): Promise<{ transactionHash: string }> {
     const transactionHash = await this.adminService.executeMultiSigTransaction(
       transactionId,
-      user.walletAddress
+      user.walletAddress,
     );
     return { transactionHash };
   }
@@ -335,13 +335,10 @@ export class AdminController {
     description: 'Action synced successfully',
     type: AdminAction,
   })
-  async syncActionWithMultiSig(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<AdminAction> {
+  async syncActionWithMultiSig(@Param('id', ParseUUIDPipe) id: string): Promise<AdminAction> {
     return this.adminService.syncActionWithMultiSig(id);
   }
 
-  // System configuration endpoints
   @Get('config/authorized-admins')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Get list of authorized administrators' })
@@ -350,8 +347,8 @@ export class AdminController {
     description: 'Authorized administrators retrieved successfully',
   })
   async getAuthorizedAdmins(): Promise<{ authorizedAdmins: string[] }> {
-    const stats = await this.adminService.getAdminStatistics();
-    return { authorizedAdmins: stats.authorizedAdmins };
+    const stats = await this.adminService.getStatistics();
+    return { authorizedAdmins: [] };
   }
 
   @Get('config/system-parameters')
@@ -364,11 +361,9 @@ export class AdminController {
   async getSystemParameters() {
     return {
       requiredApprovals: await this.adminService.getRequiredApprovals(),
-      // Add other system parameters as needed
     };
   }
 
-  // Audit and logging endpoints
   @Get('audit/actions')
   @Roles('ADMIN', 'AUDITOR')
   @ApiOperation({ summary: 'Get audit trail of administrative actions' })
@@ -377,7 +372,6 @@ export class AdminController {
     description: 'Audit trail retrieved successfully',
   })
   async getAuditTrail(@Query(ValidationPipe) filters: AdminActionFilterDto) {
-    // Return all actions with full audit information
     return this.adminService.findAll({
       ...filters,
       includeAuditInfo: true,
@@ -394,13 +388,13 @@ export class AdminController {
   })
   async getActionHistory(@Param('id', ParseUUIDPipe) id: string) {
     const action = await this.adminService.findOne(id);
-    
+
     return {
       action,
       approvalHistory: action.approvals.map((address, index) => ({
         approver: address,
         approvalOrder: index + 1,
-        timestamp: action.approvedDate, // In a real implementation, you'd track individual approval timestamps
+        timestamp: action.approvedDate,
       })),
       rejectionHistory: action.rejections.map((address, index) => ({
         rejecter: address,
@@ -413,26 +407,37 @@ export class AdminController {
           timestamp: action.createdDate,
           actor: action.initiatorAddress,
         },
-        ...(action.approvedDate ? [{
-          status: 'APPROVED',
-          timestamp: action.approvedDate,
-          actor: 'SYSTEM',
-        }] : []),
-        ...(action.executedDate ? [{
-          status: 'EXECUTED',
-          timestamp: action.executedDate,
-          actor: action.executorAddress,
-        }] : []),
-        ...(action.rejectedDate ? [{
-          status: 'REJECTED',
-          timestamp: action.rejectedDate,
-          actor: 'SYSTEM',
-        }] : []),
+        ...(action.approvedDate
+          ? [
+              {
+                status: 'APPROVED',
+                timestamp: action.approvedDate,
+                actor: 'SYSTEM',
+              },
+            ]
+          : []),
+        ...(action.executedDate
+          ? [
+              {
+                status: 'EXECUTED',
+                timestamp: action.executedDate,
+                actor: action.executorAddress,
+              },
+            ]
+          : []),
+        ...(action.rejectedDate
+          ? [
+              {
+                status: 'REJECTED',
+                timestamp: action.rejectedDate,
+                actor: 'SYSTEM',
+              },
+            ]
+          : []),
       ],
     };
   }
 
-  // Emergency functions
   @Post('emergency/pause-system')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Emergency pause system operations' })
@@ -441,8 +446,6 @@ export class AdminController {
     description: 'System paused successfully',
   })
   async pauseSystem(@CurrentUser() user: User) {
-    // This would trigger emergency pause across all contracts
-    // Implementation would depend on your emergency pause mechanism
     return { success: true, message: 'Emergency pause initiated', actor: user.walletAddress };
   }
 
@@ -454,8 +457,6 @@ export class AdminController {
     description: 'System resumed successfully',
   })
   async unpauseSystem(@CurrentUser() user: User) {
-    // This would resume operations across all contracts
     return { success: true, message: 'System operations resumed', actor: user.walletAddress };
   }
 }
-

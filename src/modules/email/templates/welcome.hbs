@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to RwaLandChain</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      background-color: #f9fafb;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      text-align: center;
+      padding: 20px 0;
+      border-bottom: 1px solid #eaeaea;
+    }
+    .logo {
+      max-width: 200px;
+      height: auto;
+    }
+    .content {
+      padding: 30px 20px;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #4f46e5;
+      color: #ffffff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      margin: 20px 0;
+      transition: background-color 0.2s;
+    }
+    .button:hover {
+      background-color: #4338ca;
+    }
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-size: 0.875rem;
+      border-top: 1px solid #eaeaea;
+    }
+    .highlight {
+      color: #4f46e5;
+      font-weight: 600;
+    }
+    .features {
+      margin: 30px 0;
+      padding: 0;
+      list-style: none;
+    }
+    .feature-item {
+      margin-bottom: 15px;
+      padding-left: 24px;
+      position: relative;
+    }
+    .feature-item:before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #10b981;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="{{logoUrl}}" alt="RwaLandChain Logo" class="logo">
+    </div>
+    <div class="content">
+      <h1>Welcome to RwaLandChain, {{name}}!</h1>
+      <p>Thank you for joining RwaLandChain - your trusted platform for secure and transparent land administration on the blockchain.</p>
+      
+      <ul class="features">
+        <li class="feature-item">Secure land parcel management</li>
+        <li class="feature-item">Transparent ownership records</li>
+        <li class="feature-item">Smart contract-based transfers</li>
+        <li class="feature-item">Digital compliance tracking</li>
+      </ul>
+
+      <p>To get started, click the button below to access your account:</p>
+      
+      <a href="{{loginUrl}}" class="button">Access Your Account</a>
+
+      <p>If you have any questions or need assistance, don't hesitate to contact our support team at <a href="mailto:{{supportEmail}}" class="highlight">{{supportEmail}}</a>.</p>
+    </div>
+    <div class="footer">
+      <p>This email was sent by RwaLandChain. Please do not reply to this email.</p>
+      <p>© {{currentYear}} RwaLandChain. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+

@@ -4,14 +4,14 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  Index,
   OneToMany,
   ManyToMany,
   JoinTable,
+  Index,
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import { UserRole } from './user-role.entity';
 import { RefreshToken } from './refresh-token.entity';
 import { LoginAttempt } from './login-attempt.entity';
@@ -21,14 +21,15 @@ export enum UserStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
   SUSPENDED = 'SUSPENDED',
-  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+  PENDING = 'PENDING',
+  BANNED = 'BANNED',
 }
 
 export enum AuthProvider {
-  WALLET = 'WALLET',
-  EMAIL = 'EMAIL',
+  LOCAL = 'LOCAL',
   GOOGLE = 'GOOGLE',
-  GITHUB = 'GITHUB',
+  FACEBOOK = 'FACEBOOK',
+  WALLET = 'WALLET',
 }
 
 @Entity('users')
@@ -74,7 +75,7 @@ export class User {
   @Column({
     type: 'enum',
     enum: AuthProvider,
-    default: AuthProvider.WALLET,
+    default: AuthProvider.LOCAL,
   })
   provider: AuthProvider;
 
@@ -105,18 +106,27 @@ export class User {
   @Exclude({ toPlainOnly: true })
   twoFactorSecret: string;
 
-  @Column({ name: 'backup_codes', type: 'simple-array', nullable: true })
+  @Column({ name: 'two_factor_temp_secret', nullable: true })
   @Exclude({ toPlainOnly: true })
-  backupCodes: string[];
+  twoFactorTempSecret: string;
 
-  @Column({ name: 'last_login', nullable: true })
-  lastLogin: Date;
+  @Column('simple-array', { nullable: true })
+  twoFactorBackupCodes: string[];
 
-  @Column({ name: 'last_active', nullable: true })
-  lastActive: Date;
+  @Column({ name: 'last_login_ip', nullable: true })
+  lastLoginIp: string;
+
+  @Column({ name: 'last_login_user_agent', nullable: true })
+  lastLoginUserAgent: string;
+
+  @Column({ name: 'last_login_date', nullable: true })
+  lastLoginDate: Date;
 
   @Column({ name: 'login_count', default: 0 })
   loginCount: number;
+
+  @Column({ name: 'last_active', nullable: true })
+  lastActive: Date;
 
   @Column({ name: 'failed_login_attempts', default: 0 })
   failedLoginAttempts: number;
@@ -217,9 +227,7 @@ export class User {
   }
 
   hasPermission(permission: string): boolean {
-    return this.roles?.some(role => 
-      role.permissions?.includes(permission)
-    ) || false;
+    return this.roles?.some(role => role.permissions?.includes(permission)) || false;
   }
 
   hasAnyPermission(permissions: string[]): boolean {
@@ -228,7 +236,7 @@ export class User {
 
   incrementFailedAttempts(): void {
     this.failedLoginAttempts += 1;
-    
+
     // Lock account after 5 failed attempts for 30 minutes
     if (this.failedLoginAttempts >= 5) {
       this.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
@@ -239,15 +247,14 @@ export class User {
     this.failedLoginAttempts = 0;
     this.lockedUntil = null;
   }
-
   updateLastLogin(): void {
-    this.lastLogin = new Date();
-    this.loginCount += 1;
+    this.lastLoginDate = new Date();
+    this.loginCount++;
     this.resetFailedAttempts();
   }
 
-  updateLastActive(): void {
-    this.lastActive = new Date();
+  updateLastActive(date: Date = new Date()): void {
+    this.lastActive = date;
   }
 
   generateEmailVerificationToken(): string {
@@ -266,8 +273,8 @@ export class User {
     this.emailVerified = true;
     this.emailVerificationToken = null;
     this.emailVerificationExpires = null;
-    
-    if (this.status === UserStatus.PENDING_VERIFICATION) {
+
+    if (this.status === UserStatus.PENDING) {
       this.status = UserStatus.ACTIVE;
     }
   }
@@ -301,14 +308,25 @@ export class User {
   }
 
   private generateRandomToken(): string {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15);
+    return (
+      Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    );
   }
 
   // Serialization
   toJSON() {
-    const { password, emailVerificationToken, passwordResetToken, twoFactorSecret, backupCodes, ...result } = this;
+    const {
+      password,
+      emailVerificationToken,
+      passwordResetToken,
+      twoFactorSecret,
+      twoFactorTempSecret,
+      twoFactorBackupCodes,
+      lastLoginIp,
+      lastLoginUserAgent,
+      lastLoginDate,
+      ...result
+    } = this;
     return result;
   }
 }
-

@@ -44,34 +44,29 @@ export class NotificationService {
     private configService: ConfigService,
   ) {}
 
-  // Notification Management
-
   async createNotification(createNotificationDto: CreateNotificationDto): Promise<Notification> {
     this.logger.log(`Creating notification for user ${createNotificationDto.userId}`);
 
-    // Get user preferences
     const preferences = await this.getPreferences(createNotificationDto.userId);
 
-    // Check if user has this notification type enabled
     if (!preferences.isTypeEnabled(createNotificationDto.type)) {
-      this.logger.log(`Notification type ${createNotificationDto.type} is disabled for user ${createNotificationDto.userId}`);
+      this.logger.log(
+        `Notification type ${createNotificationDto.type} is disabled for user ${createNotificationDto.userId}`,
+      );
       return null;
     }
 
-    // Get template if specified
     let template: NotificationTemplate = null;
     if (createNotificationDto.templateId) {
       template = await this.templateRepository.findOne({
         where: { id: createNotificationDto.templateId },
       });
     } else {
-      // Try to find template by type
       template = await this.templateRepository.findOne({
         where: { type: createNotificationDto.type, active: true },
       });
     }
 
-    // Determine channels to use
     let channels = createNotificationDto.channels;
     if (!channels) {
       if (template) {
@@ -81,7 +76,6 @@ export class NotificationService {
       }
     }
 
-    // Filter channels based on user preferences
     channels = channels.filter(channel => preferences.isChannelEnabled(channel));
 
     if (channels.length === 0) {
@@ -89,7 +83,6 @@ export class NotificationService {
       return null;
     }
 
-    // Create notification
     const notification = this.notificationRepository.create({
       ...createNotificationDto,
       channels,
@@ -97,11 +90,10 @@ export class NotificationService {
       status: NotificationStatus.PENDING,
     });
 
-    // Apply template if available
     if (template) {
       notification.title = template.formatTitle(createNotificationDto.data);
       notification.content = template.formatContent(createNotificationDto.data);
-      
+
       if (template.autoExpireHours) {
         notification.expiresAt = new Date(Date.now() + template.autoExpireHours * 60 * 60 * 1000);
       }
@@ -109,7 +101,6 @@ export class NotificationService {
 
     const savedNotification = await this.notificationRepository.save(notification);
 
-    // Send notification immediately if not in quiet hours
     if (!preferences.isInQuietHours()) {
       await this.sendNotification(savedNotification, preferences, template);
     }
@@ -118,7 +109,8 @@ export class NotificationService {
   }
 
   async getUserNotifications(userId: string, query: NotificationQueryDto): Promise<any> {
-    const queryBuilder = this.notificationRepository.createQueryBuilder('notification')
+    const queryBuilder = this.notificationRepository
+      .createQueryBuilder('notification')
       .where('notification.userId = :userId', { userId })
       .orderBy('notification.createdAt', 'DESC');
 
@@ -141,7 +133,7 @@ export class NotificationService {
     if (query.search) {
       queryBuilder.andWhere(
         '(notification.title ILIKE :search OR notification.content ILIKE :search)',
-        { search: `%${query.search}%` }
+        { search: `%${query.search}%` },
       );
     }
 
@@ -205,7 +197,7 @@ export class NotificationService {
 
   async markAsRead(id: string, userId: string): Promise<Notification> {
     const notification = await this.getNotificationById(id, userId);
-    
+
     if (!notification.readAt) {
       notification.readAt = new Date();
       await this.notificationRepository.save(notification);
@@ -217,7 +209,7 @@ export class NotificationService {
   async markAllAsRead(userId: string): Promise<number> {
     const result = await this.notificationRepository.update(
       { userId, readAt: null },
-      { readAt: new Date() }
+      { readAt: new Date() },
     );
 
     return result.affected || 0;
@@ -252,7 +244,11 @@ export class NotificationService {
     }
 
     const preferences = await this.getPreferences(notification.userId);
-    const success = await this.sendNotification(notification, preferences, notification.notificationTemplate);
+    const success = await this.sendNotification(
+      notification,
+      preferences,
+      notification.notificationTemplate,
+    );
 
     if (success) {
       notification.status = NotificationStatus.SENT;
@@ -269,15 +265,12 @@ export class NotificationService {
     return success;
   }
 
-  // Preferences Management
-
   async getPreferences(userId: string): Promise<NotificationPreference> {
     let preferences = await this.preferenceRepository.findOne({
       where: { userId },
     });
 
     if (!preferences) {
-      // Create default preferences
       preferences = this.preferenceRepository.create({
         userId,
         emailEnabled: true,
@@ -301,8 +294,6 @@ export class NotificationService {
     Object.assign(preferences, preferencesDto);
     return this.preferenceRepository.save(preferences);
   }
-
-  // Template Management
 
   async getTemplates(): Promise<NotificationTemplate[]> {
     return this.templateRepository.find({
@@ -331,7 +322,10 @@ export class NotificationService {
     return this.templateRepository.save(template);
   }
 
-  async updateTemplate(id: string, updateTemplateDto: UpdateTemplateDto): Promise<NotificationTemplate> {
+  async updateTemplate(
+    id: string,
+    updateTemplateDto: UpdateTemplateDto,
+  ): Promise<NotificationTemplate> {
     const template = await this.getTemplate(id);
     Object.assign(template, updateTemplateDto);
     return this.templateRepository.save(template);
@@ -342,11 +336,15 @@ export class NotificationService {
     await this.templateRepository.remove(template);
   }
 
-  // Statistics
-
   async getStatistics(): Promise<NotificationStatsDto> {
     const totalSent = await this.notificationRepository.count({
-      where: { status: In([NotificationStatus.SENT, NotificationStatus.DELIVERED, NotificationStatus.READ]) },
+      where: {
+        status: In([
+          NotificationStatus.SENT,
+          NotificationStatus.DELIVERED,
+          NotificationStatus.READ,
+        ]),
+      },
     });
 
     const totalDelivered = await this.notificationRepository.count({
@@ -364,16 +362,22 @@ export class NotificationService {
     const deliveryRate = totalSent > 0 ? (totalDelivered / totalSent) * 100 : 0;
     const readRate = totalDelivered > 0 ? (totalRead / totalDelivered) * 100 : 0;
 
-    // Get statistics by type
     const typeStats = await this.notificationRepository
       .createQueryBuilder('notification')
       .select('notification.type', 'type')
       .addSelect('COUNT(CASE WHEN notification.status IN (:...sentStatuses) THEN 1 END)', 'sent')
-      .addSelect('COUNT(CASE WHEN notification.status IN (:...deliveredStatuses) THEN 1 END)', 'delivered')
+      .addSelect(
+        'COUNT(CASE WHEN notification.status IN (:...deliveredStatuses) THEN 1 END)',
+        'delivered',
+      )
       .addSelect('COUNT(CASE WHEN notification.status = :readStatus THEN 1 END)', 'read')
       .addSelect('COUNT(CASE WHEN notification.status = :failedStatus THEN 1 END)', 'failed')
       .setParameters({
-        sentStatuses: [NotificationStatus.SENT, NotificationStatus.DELIVERED, NotificationStatus.READ],
+        sentStatuses: [
+          NotificationStatus.SENT,
+          NotificationStatus.DELIVERED,
+          NotificationStatus.READ,
+        ],
         deliveredStatuses: [NotificationStatus.DELIVERED, NotificationStatus.READ],
         readStatus: NotificationStatus.READ,
         failedStatus: NotificationStatus.FAILED,
@@ -391,15 +395,21 @@ export class NotificationService {
       return acc;
     }, {});
 
-    // Get statistics by channel
     const channelStats = await this.notificationRepository
       .createQueryBuilder('notification')
       .select('unnest(notification.channels)', 'channel')
       .addSelect('COUNT(CASE WHEN notification.status IN (:...sentStatuses) THEN 1 END)', 'sent')
-      .addSelect('COUNT(CASE WHEN notification.status IN (:...deliveredStatuses) THEN 1 END)', 'delivered')
+      .addSelect(
+        'COUNT(CASE WHEN notification.status IN (:...deliveredStatuses) THEN 1 END)',
+        'delivered',
+      )
       .addSelect('COUNT(CASE WHEN notification.status = :failedStatus THEN 1 END)', 'failed')
       .setParameters({
-        sentStatuses: [NotificationStatus.SENT, NotificationStatus.DELIVERED, NotificationStatus.READ],
+        sentStatuses: [
+          NotificationStatus.SENT,
+          NotificationStatus.DELIVERED,
+          NotificationStatus.READ,
+        ],
         deliveredStatuses: [NotificationStatus.DELIVERED, NotificationStatus.READ],
         failedStatus: NotificationStatus.FAILED,
       })
@@ -427,8 +437,6 @@ export class NotificationService {
     };
   }
 
-  // Private Methods
-
   private async sendNotification(
     notification: Notification,
     preferences: NotificationPreference,
@@ -437,7 +445,6 @@ export class NotificationService {
     let success = true;
 
     try {
-      // Send via each enabled channel
       for (const channel of notification.channels) {
         if (!preferences.isChannelEnabled(channel)) {
           continue;
@@ -456,8 +463,6 @@ export class NotificationService {
             break;
 
           case NotificationChannel.WEB:
-            // Web notifications are handled by the frontend via WebSocket
-            // Mark as sent immediately
             break;
 
           case NotificationChannel.PUSH:
@@ -495,7 +500,7 @@ export class NotificationService {
       this.logger.error(`Failed to send notification ${notification.id}:`, error);
       notification.status = NotificationStatus.FAILED;
       notification.failedAt = new Date();
-      notification.errorMessage = error.message;
+      notification.errorMessage = (error as Error).message;
       success = false;
     }
 
@@ -512,7 +517,12 @@ export class NotificationService {
       const subject = template?.formatEmailSubject(notification.data) || notification.title;
       const content = template?.formatEmailContent(notification.data) || notification.content;
 
-      return await this.emailService.sendNotificationEmail(email, subject, content, notification.data);
+      return await this.emailService.sendNotificationEmail(
+        email,
+        subject,
+        content,
+        notification.data,
+      );
     } catch (error) {
       this.logger.error(`Failed to send email notification:`, error);
       return false;
@@ -525,7 +535,6 @@ export class NotificationService {
     template?: NotificationTemplate,
   ): Promise<boolean> {
     try {
-      // TODO: Implement push notification service (Firebase, OneSignal, etc.)
       this.logger.log(`Push notification would be sent to token: ${pushToken}`);
       return true;
     } catch (error) {
@@ -540,7 +549,6 @@ export class NotificationService {
     template?: NotificationTemplate,
   ): Promise<boolean> {
     try {
-      // TODO: Implement SMS service (Twilio, AWS SNS, etc.)
       this.logger.log(`SMS notification would be sent to: ${phoneNumber}`);
       return true;
     } catch (error) {
@@ -549,14 +557,13 @@ export class NotificationService {
     }
   }
 
-  // Specialized notification methods
-
   async sendWelcomeNotification(userId: string, userData: any): Promise<void> {
     await this.createNotification({
       userId,
       type: NotificationType.WELCOME,
       title: 'Welcome to RwaLandChain!',
-      content: 'Your account has been successfully created. Welcome to the future of land administration.',
+      content:
+        'Your account has been successfully created. Welcome to the future of land administration.',
       data: userData,
     });
   }
@@ -568,7 +575,9 @@ export class NotificationService {
     toAddress: string,
     isReceiver: boolean,
   ): Promise<void> {
-    const type = isReceiver ? NotificationType.PARCEL_TRANSFER_RECEIVED : NotificationType.PARCEL_TRANSFER_SENT;
+    const type = isReceiver
+      ? NotificationType.PARCEL_TRANSFER_RECEIVED
+      : NotificationType.PARCEL_TRANSFER_SENT;
     const title = isReceiver ? 'Land Parcel Received' : 'Land Parcel Transferred';
     const content = isReceiver
       ? `You have received land parcel #${parcelId} from ${fromAddress}`
@@ -674,4 +683,3 @@ export class NotificationService {
     });
   }
 }
-

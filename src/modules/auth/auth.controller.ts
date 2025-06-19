@@ -53,13 +53,17 @@ import {
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.entity';
 
+
+interface BackupCode {
+  secret: string;
+  qrCode: string;
+}
+
 @ApiTags('Authentication')
 @Controller('auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
-
-  // Public Authentication Endpoints
 
   @Public()
   @Post('register')
@@ -152,8 +156,6 @@ export class AuthController {
     return { message: 'Logout from all devices successful' };
   }
 
-  // Password Management
-
   @Public()
   @Post('forgot-password')
   @ApiOperation({ summary: 'Request password reset' })
@@ -197,8 +199,6 @@ export class AuthController {
     return { message: 'Password changed successfully' };
   }
 
-  // Email Verification
-
   @Public()
   @Post('verify-email')
   @ApiOperation({ summary: 'Verify email address' })
@@ -223,11 +223,9 @@ export class AuthController {
   async resendVerification(
     @Body(ValidationPipe) resendVerificationDto: ResendVerificationDto,
   ): Promise<{ message: string }> {
-    await this.authService.resendVerification(resendVerificationDto.email);
+    await this.authService.resendVerificationEmail(resendVerificationDto.email);
     return { message: 'If the email exists, a verification link has been sent' };
   }
-
-  // Two-Factor Authentication
 
   @Post('2fa/generate')
   @ApiOperation({ summary: 'Generate 2FA secret' })
@@ -250,9 +248,9 @@ export class AuthController {
   async enable2FA(
     @Request() req,
     @Body(ValidationPipe) enable2FADto: Enable2FADto,
-  ): Promise<{ backupCodes: string[] }> {
+  ): Promise<{backupCodes: string[] }> {
     const backupCodes = await this.authService.enable2FA(req.user.sub, enable2FADto);
-    return { backupCodes };
+    return {  backupCodes };
   }
 
   @Post('2fa/disable')
@@ -266,11 +264,9 @@ export class AuthController {
     @Request() req,
     @Body(ValidationPipe) verify2FADto: Verify2FADto,
   ): Promise<{ message: string }> {
-    await this.authService.disable2FA(req.user.sub, verify2FADto.code);
+    await this.authService.disable2FA(req.user.sub, verify2FADto.token);
     return { message: '2FA disabled successfully' };
   }
-
-  // Profile Management
 
   @Get('profile')
   @ApiOperation({ summary: 'Get user profile' })
@@ -298,8 +294,6 @@ export class AuthController {
   ): Promise<User> {
     return this.authService.updateProfile(req.user.sub, updateProfileDto);
   }
-
-  // User Management (Admin only)
 
   @Get('users')
   @ApiOperation({ summary: 'Get all users' })
@@ -371,8 +365,6 @@ export class AuthController {
     return { message: 'User deleted successfully' };
   }
 
-  // Role Management (Admin only)
-
   @Get('roles')
   @ApiOperation({ summary: 'Get all roles' })
   @ApiResponse({
@@ -443,8 +435,6 @@ export class AuthController {
     return this.authService.assignRoles(assignRoleDto);
   }
 
-  // Login Attempts (Admin only)
-
   @Get('login-attempts')
   @ApiOperation({ summary: 'Get login attempts' })
   @ApiResponse({
@@ -474,8 +464,6 @@ export class AuthController {
     });
   }
 
-  // Health Check
-
   @Public()
   @Get('health')
   @ApiOperation({ summary: 'Health check' })
@@ -490,4 +478,3 @@ export class AuthController {
     };
   }
 }
-

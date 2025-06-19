@@ -12,7 +12,7 @@ import { AnalyticsService } from './analytics.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user-role.entity';
+import { UserRole } from '../auth/enums/user-role.enum';
 import {
   SystemOverviewDto,
   LandManagementAnalyticsDto,
@@ -41,7 +41,7 @@ export class AnalyticsController {
       return await this.analyticsService.getSystemOverview();
     } catch (error) {
       throw new HttpException(
-        `Failed to get system overview: ${error.message}`,
+        `Failed to get system overview: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -57,7 +57,7 @@ export class AnalyticsController {
       return await this.analyticsService.getLandManagementAnalytics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get land management analytics: ${error.message}`,
+        `Failed to get land management analytics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -73,7 +73,7 @@ export class AnalyticsController {
       return await this.analyticsService.getGovernanceAnalytics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get governance analytics: ${error.message}`,
+        `Failed to get governance analytics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -89,7 +89,7 @@ export class AnalyticsController {
       return await this.analyticsService.getUserAnalytics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get user analytics: ${error.message}`,
+        `Failed to get user analytics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -105,7 +105,7 @@ export class AnalyticsController {
       return await this.analyticsService.getTransactionAnalytics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get transaction analytics: ${error.message}`,
+        `Failed to get transaction analytics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -121,7 +121,7 @@ export class AnalyticsController {
       return await this.analyticsService.getComplianceAnalytics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get compliance analytics: ${error.message}`,
+        `Failed to get compliance analytics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -137,7 +137,7 @@ export class AnalyticsController {
       return await this.analyticsService.getPerformanceMetrics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get performance metrics: ${error.message}`,
+        `Failed to get performance metrics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -156,7 +156,7 @@ export class AnalyticsController {
       return await this.analyticsService.getTrendAnalysis(days);
     } catch (error) {
       throw new HttpException(
-        `Failed to get trend analysis: ${error.message}`,
+        `Failed to get trend analysis: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -199,7 +199,7 @@ export class AnalyticsController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get dashboard data: ${error.message}`,
+        `Failed to get dashboard data: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -222,7 +222,7 @@ export class AnalyticsController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get health check: ${error.message}`,
+        `Failed to get health check: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

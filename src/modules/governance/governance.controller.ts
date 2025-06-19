@@ -45,7 +45,7 @@ export class GovernanceController {
       return await this.governanceService.createProposal(createProposalDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to create governance proposal: ${error.message}`,
+        `Failed to create governance proposal: ${(error as any).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -70,7 +70,7 @@ export class GovernanceController {
       return await this.governanceService.findAll(page, limit, proposalType, status, proposer);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve governance proposals: ${error.message}`,
+        `Failed to retrieve governance proposals: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -85,8 +85,8 @@ export class GovernanceController {
       return await this.governanceService.findOne(id);
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve governance proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve governance proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -104,8 +104,8 @@ export class GovernanceController {
       return proposal;
     } catch (error) {
       throw new HttpException(
-        `Failed to retrieve governance proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve governance proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -122,8 +122,8 @@ export class GovernanceController {
       return await this.governanceService.update(id, updateProposalDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to update governance proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to update governance proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -140,8 +140,8 @@ export class GovernanceController {
       return await this.governanceService.vote(id, voteDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to vote on proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to vote on proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -160,8 +160,8 @@ export class GovernanceController {
       return await this.governanceService.execute(id, executeDto);
     } catch (error) {
       throw new HttpException(
-        `Failed to execute proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to execute proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -180,8 +180,8 @@ export class GovernanceController {
       return await this.governanceService.cancel(id, cancelData.cancelledBy, cancelData.reason);
     } catch (error) {
       throw new HttpException(
-        `Failed to cancel proposal: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to cancel proposal: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -197,7 +197,7 @@ export class GovernanceController {
       return { message: 'Proposal statuses updated successfully' };
     } catch (error) {
       throw new HttpException(
-        `Failed to update proposal statuses: ${error.message}`,
+        `Failed to update proposal statuses: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -211,7 +211,7 @@ export class GovernanceController {
       return await this.governanceService.getProposalStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get proposal statistics: ${error.message}`,
+        `Failed to get proposal statistics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -225,7 +225,7 @@ export class GovernanceController {
       return await this.governanceService.getGovernanceStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get governance statistics: ${error.message}`,
+        `Failed to get governance statistics: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -249,7 +249,7 @@ export class GovernanceController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get voting power: ${error.message}`,
+        `Failed to get voting power: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -274,8 +274,8 @@ export class GovernanceController {
       };
     } catch (error) {
       throw new HttpException(
-        `Failed to get proposal votes: ${error.message}`,
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to get proposal votes: ${(error as any).message}`,
+        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -288,7 +288,7 @@ export class GovernanceController {
       return await this.governanceService.findAll(1, 100, undefined, ProposalStatus.ACTIVE);
     } catch (error) {
       throw new HttpException(
-        `Failed to get active proposals: ${error.message}`,
+        `Failed to get active proposals: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -306,7 +306,7 @@ export class GovernanceController {
       return await this.governanceService.findAll(page, limit, undefined, undefined, address);
     } catch (error) {
       throw new HttpException(
-        `Failed to get user proposals: ${error.message}`,
+        `Failed to get user proposals: ${(error as any).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
