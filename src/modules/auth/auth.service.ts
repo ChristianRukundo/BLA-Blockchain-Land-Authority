@@ -1077,9 +1077,9 @@ export class AuthService {
   }
 
   private async validateWalletLogin(loginDto: WalletLoginDto | LoginDto): Promise<User> {
-    const walletAddress = 'walletAddress' in loginDto ? loginDto.walletAddress : loginDto.walletAddress;
-    const signature = 'signature' in loginDto ? loginDto.signature : loginDto.signature;
-    const message = 'message' in loginDto ? loginDto.message : loginDto.message;
+    const walletAddress = (loginDto as WalletLoginDto).walletAddress ?? (loginDto as LoginDto).walletAddress;
+    const signature = (loginDto as WalletLoginDto).signature ?? (loginDto as LoginDto).signature;
+    const message = (loginDto as WalletLoginDto).message ?? (loginDto as LoginDto).message;
 
     if (!walletAddress || !signature || !message) {
       throw new BadRequestException('Wallet address, signature, and message are required');

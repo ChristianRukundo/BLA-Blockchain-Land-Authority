@@ -182,7 +182,7 @@ export class ExpropriationController {
     @Body(ValidationPipe) dto: ClaimCompensationDto,
     @CurrentUser() user: User,
   ): Promise<Expropriation> {
-    return this.expropriationService.claimCompensation(id, dto, user.walletAddress);
+    return this.expropriationService.claimCompensation(id, dto);
   }
 
   @Post(':id/complete')

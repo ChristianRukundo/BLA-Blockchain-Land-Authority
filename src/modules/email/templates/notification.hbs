@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{subject}}</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      background-color: #f9fafb;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      text-align: center;
+      padding: 20px 0;
+      border-bottom: 1px solid #eaeaea;
+    }
+    .content {
+      padding: 30px 20px;
+    }
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-size: 0.875rem;
+      border-top: 1px solid #eaeaea;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="{{logoUrl}}" alt="RwaLandChain Logo" style="max-width: 150px; height: auto;">
+      <h1>{{subject}}</h1>
+    </div>
+    <div class="content">
+      <p>{{content}}</p>
+      {{#if notificationDetails}}
+        <h3>Details:</h3>
+        <ul>
+          {{#each notificationDetails}}
+            <li><strong>{{key}}:</strong> {{value}}</li>
+          {{/each}}
+        </ul>
+      {{/if}}
+      <p>If you have any questions, please contact our support team at <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>.</p>
+    </div>
+    <div class="footer">
+      <p>This email was sent by RwaLandChain. Please do not reply to this email.</p>
+      <p>&copy; {{currentYear}} RwaLandChain. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>

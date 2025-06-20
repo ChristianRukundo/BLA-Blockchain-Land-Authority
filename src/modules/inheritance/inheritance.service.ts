@@ -37,47 +37,48 @@ export class InheritanceService {
 
   async createInheritance(createInheritanceDto: CreateInheritanceDto): Promise<Inheritance> {
     try {
-      // Verify the land parcel exists
-      const landParcel = await this.laisService.findLandParcelById(createInheritanceDto.landParcelId);
+      const landParcel = await this.laisService.findOne(createInheritanceDto.landParcelId);
       if (!landParcel) {
         throw new BadRequestException('Land parcel not found');
       }
 
-      // Store inheritance details in IPFS
       const inheritanceData = {
-        landParcelId: createInheritanceDto.landParcelId,
-        currentOwner: createInheritanceDto.currentOwner,
+        parcelId: createInheritanceDto.landParcelId,
+        ownerAddress: createInheritanceDto.currentOwner,
         designatedHeir: createInheritanceDto.designatedHeir,
         conditions: createInheritanceDto.conditions,
         createdAt: new Date().toISOString(),
       };
 
-      const ipfsHash = await this.ipfsService.uploadJson(inheritanceData);
+      const metadataHash = await this.ipfsService.uploadJson(inheritanceData);
 
       const inheritance = this.inheritanceRepository.create({
-        ...createInheritanceDto,
-        ipfsHash,
+        parcelId: createInheritanceDto.landParcelId,
+        ownerAddress: createInheritanceDto.currentOwner,
+        designatedHeir: createInheritanceDto.designatedHeir,
         status: InheritanceStatus.ACTIVE,
+        creationDate: new Date(),
+        activationDate: new Date(),
+        notes: createInheritanceDto.notes,
+        creationTransactionHash: null,
       });
 
       const savedInheritance = await this.inheritanceRepository.save(inheritance);
       this.logger.log(`Inheritance created with ID: ${savedInheritance.id}`);
 
-      // Update the land parcel with heir information
       await this.laisService.updateLandParcel(createInheritanceDto.landParcelId, {
         nominatedHeir: createInheritanceDto.designatedHeir,
       });
 
-      // Send notification to the designated heir
-      await this.notificationService.create({
+      await this.notificationService.createNotification({
         userId: createInheritanceDto.designatedHeir,
         type: NotificationType.INHERITANCE_DESIGNATED,
         title: 'You Have Been Designated as an Heir',
-        message: `You have been designated as the heir for land parcel ${landParcel.title}`,
-        data: { 
+        content: `You have been designated as the heir for land parcel ${landParcel.upi}`,
+        data: {
           inheritanceId: savedInheritance.id,
-          landParcelId: createInheritanceDto.landParcelId,
-          currentOwner: createInheritanceDto.currentOwner,
+          parcelId: createInheritanceDto.landParcelId,
+          ownerAddress: createInheritanceDto.currentOwner,
         },
       });
 
@@ -92,14 +93,14 @@ export class InheritanceService {
     page: number = 1,
     limit: number = 10,
     status?: InheritanceStatus,
-    currentOwner?: string,
+    ownerAddress?: string,
     designatedHeir?: string,
   ): Promise<InheritanceListResponseDto> {
     try {
       const where: FindOptionsWhere<Inheritance> = {};
-      
+
       if (status) where.status = status;
-      if (currentOwner) where.currentOwner = currentOwner.toLowerCase();
+      if (ownerAddress) where.ownerAddress = ownerAddress.toLowerCase();
       if (designatedHeir) where.designatedHeir = designatedHeir.toLowerCase();
 
       const [inheritances, total] = await this.inheritanceRepository.findAndCount({
@@ -134,13 +135,13 @@ export class InheritanceService {
     }
   }
 
-  async findByLandParcel(landParcelId: string): Promise<Inheritance | null> {
+  async findByLandParcel(parcelId: string): Promise<Inheritance | null> {
     try {
       return await this.inheritanceRepository.findOne({
-        where: { landParcelId, status: InheritanceStatus.ACTIVE },
+        where: { parcelId, status: InheritanceStatus.ACTIVE },
       });
     } catch (error) {
-      this.logger.error(`Failed to find inheritance for land parcel: ${landParcelId}`, error);
+      this.logger.error(`Failed to find inheritance for land parcel: ${parcelId}`, error);
       throw error;
     }
   }
@@ -149,14 +150,13 @@ export class InheritanceService {
     try {
       const inheritance = await this.findOne(id);
 
-      // Only allow updates if inheritance is still active
       if (inheritance.status !== InheritanceStatus.ACTIVE) {
         throw new BadRequestException('Cannot update inheritance that is not active');
       }
 
       Object.assign(inheritance, updateInheritanceDto);
       const updatedInheritance = await this.inheritanceRepository.save(inheritance);
-      
+
       this.logger.log(`Inheritance updated with ID: ${id}`);
       return updatedInheritance;
     } catch (error) {
@@ -165,40 +165,49 @@ export class InheritanceService {
     }
   }
 
-  async createInheritanceRequest(createRequestDto: CreateInheritanceRequestDto): Promise<InheritanceRequest> {
+  async createInheritanceRequest(
+    createRequestDto: CreateInheritanceRequestDto,
+  ): Promise<InheritanceRequest> {
     try {
-      // Verify the inheritance exists and is active
-      const inheritance = await this.findOne(createRequestDto.inheritanceId);
+      const inheritance = await this.findByLandParcel(createRequestDto.parcelId);
+      if (!inheritance) {
+        throw new BadRequestException('No active inheritance found for this land parcel');
+      }
+
       if (inheritance.status !== InheritanceStatus.ACTIVE) {
         throw new BadRequestException('Inheritance is not active');
       }
 
-      // Verify the requester is the designated heir
       if (inheritance.designatedHeir.toLowerCase() !== createRequestDto.requestedBy.toLowerCase()) {
         throw new BadRequestException('Only the designated heir can request inheritance');
       }
 
-      // Store request evidence in IPFS
       const requestData = {
-        inheritanceId: createRequestDto.inheritanceId,
+        inheritanceId: inheritance.id,
         requestedBy: createRequestDto.requestedBy,
         deathCertificateHash: createRequestDto.deathCertificateHash,
-        additionalEvidence: createRequestDto.additionalEvidence,
+        supportingDocumentsHash: createRequestDto.supportingDocumentsHash,
+        notes: createRequestDto.notes,
         createdAt: new Date().toISOString(),
       };
 
-      const ipfsHash = await this.ipfsService.uploadJson(requestData);
+      const metadataHash = await this.ipfsService.uploadJson(requestData);
 
       const request = this.inheritanceRequestRepository.create({
-        ...createRequestDto,
-        ipfsHash,
+        parcelId: createRequestDto.parcelId,
+        ownerAddress: inheritance.ownerAddress,
+        heirAddress: inheritance.designatedHeir,
+        requestedBy: createRequestDto.requestedBy,
+        inheritanceId: inheritance.id,
         status: RequestStatus.PENDING,
+        requestDate: new Date(),
+        documentsHash: createRequestDto.deathCertificateHash,
+        notes: createRequestDto.notes,
       });
 
       const savedRequest = await this.inheritanceRequestRepository.save(request);
       this.logger.log(`Inheritance request created with ID: ${savedRequest.id}`);
 
-      // Trigger oracle verification process
       await this.triggerOracleVerification(savedRequest);
 
       return savedRequest;
@@ -215,7 +224,6 @@ export class InheritanceService {
     try {
       const request = await this.inheritanceRequestRepository.findOne({
         where: { id: requestId },
-        relations: ['inheritance'],
       });
 
       if (!request) {
@@ -226,33 +234,33 @@ export class InheritanceService {
         throw new BadRequestException('Request is not pending processing');
       }
 
-      // Update request status based on verification result
-      request.status = processDto.approved ? RequestStatus.APPROVED : RequestStatus.REJECTED;
+      request.status = processDto.status;
       request.processedAt = new Date();
       request.processedBy = processDto.processedBy;
       request.verificationNotes = processDto.verificationNotes;
-      request.oracleVerificationTxHash = processDto.oracleVerificationTxHash;
+      request.oracleVerificationTxHash = processDto.transactionHash;
 
-      if (processDto.approved) {
-        // Execute the inheritance transfer
-        await this.executeInheritanceTransfer(request);
+      if (processDto.status === RequestStatus.DEATH_VERIFIED) {
+        await this.executeInheritanceRequest(request);
       }
 
       const updatedRequest = await this.inheritanceRequestRepository.save(request);
       this.logger.log(`Inheritance request processed: ${requestId} - ${request.status}`);
 
-      // Send notification to the heir
-      await this.notificationService.create({
+      const isApproved = processDto.status === RequestStatus.DEATH_VERIFIED;
+      await this.notificationService.createNotification({
         userId: request.requestedBy,
-        type: processDto.approved ? NotificationType.INHERITANCE_APPROVED : NotificationType.INHERITANCE_REJECTED,
-        title: processDto.approved ? 'Inheritance Request Approved' : 'Inheritance Request Rejected',
-        message: processDto.approved 
+        type: isApproved
+          ? NotificationType.INHERITANCE_APPROVED
+          : NotificationType.INHERITANCE_REJECTED,
+        title: isApproved ? 'Inheritance Request Approved' : 'Inheritance Request Rejected',
+        content: isApproved
           ? 'Your inheritance request has been approved and the land transfer is being processed'
           : `Your inheritance request has been rejected: ${processDto.verificationNotes}`,
-        data: { 
+        data: {
           requestId,
           inheritanceId: request.inheritanceId,
-          approved: processDto.approved,
+          status: processDto.status,
           notes: processDto.verificationNotes,
         },
       });
@@ -264,32 +272,25 @@ export class InheritanceService {
     }
   }
 
-  async executeInheritanceTransfer(request: InheritanceRequest): Promise<void> {
+  async executeInheritanceRequest(request: InheritanceRequest): Promise<void> {
     try {
       const inheritance = await this.findOne(request.inheritanceId);
-      
-      // Execute the transfer on-chain
-      const txHash = await this.blockchainService.executeInheritanceTransfer({
-        landParcelId: inheritance.landParcelId,
-        currentOwner: inheritance.currentOwner,
-        newOwner: inheritance.designatedHeir,
-        requestId: request.id,
-        verificationHash: request.oracleVerificationTxHash,
-      });
 
-      // Update inheritance status
+      const txResponse = await this.blockchainService.executeInheritanceRequest(
+        inheritance.parcelId,
+      );
+
       inheritance.status = InheritanceStatus.COMPLETED;
-      inheritance.completedAt = new Date();
-      inheritance.transferTxHash = txHash;
+      inheritance.completionDate = new Date();
+      inheritance.completionTransactionHash = txResponse.hash;
       await this.inheritanceRepository.save(inheritance);
 
-      // Update land parcel ownership
-      await this.laisService.updateLandParcel(inheritance.landParcelId, {
+      await this.laisService.updateLandParcel(inheritance.parcelId, {
         ownerAddress: inheritance.designatedHeir,
-        nominatedHeir: null, // Clear the heir designation
+        nominatedHeir: null,
       });
 
-      this.logger.log(`Inheritance transfer executed: ${inheritance.id} - TX: ${txHash}`);
+      this.logger.log(`Inheritance transfer executed: ${inheritance.id} - TX: ${txResponse.hash}`);
     } catch (error) {
       this.logger.error('Failed to execute inheritance transfer', error);
       throw error;
@@ -305,15 +306,13 @@ export class InheritanceService {
       }
 
       inheritance.status = InheritanceStatus.CANCELLED;
-      inheritance.cancelledAt = new Date();
-      inheritance.cancelledBy = cancelledBy;
+      inheritance.cancellationDate = new Date();
       inheritance.cancellationReason = reason;
 
       const updatedInheritance = await this.inheritanceRepository.save(inheritance);
       this.logger.log(`Inheritance cancelled by ${cancelledBy}: ${id}`);
 
-      // Clear heir designation from land parcel
-      await this.laisService.updateLandParcel(inheritance.landParcelId, {
+      await this.laisService.updateLandParcel(inheritance.parcelId, {
         nominatedHeir: null,
       });
 
@@ -332,7 +331,7 @@ export class InheritanceService {
   ): Promise<InheritanceRequestListResponseDto> {
     try {
       const where: FindOptionsWhere<InheritanceRequest> = {};
-      
+
       if (status) where.status = status;
       if (requestedBy) where.requestedBy = requestedBy.toLowerCase();
 
@@ -360,7 +359,7 @@ export class InheritanceService {
     try {
       const totalInheritances = await this.inheritanceRepository.count();
       const totalRequests = await this.inheritanceRequestRepository.count();
-      
+
       const inheritancesByStatus = {} as Record<InheritanceStatus, number>;
       for (const status of Object.values(InheritanceStatus)) {
         inheritancesByStatus[status] = await this.inheritanceRepository.count({
@@ -375,7 +374,6 @@ export class InheritanceService {
         });
       }
 
-      // Calculate average processing time for approved requests
       const approvedRequests = await this.inheritanceRequestRepository.find({
         where: { status: RequestStatus.APPROVED },
         select: ['createdAt', 'processedAt'],
@@ -389,7 +387,8 @@ export class InheritanceService {
           }
           return sum;
         }, 0);
-        averageProcessingTimeHours = totalProcessingTime / (approvedRequests.length * 1000 * 60 * 60);
+        averageProcessingTimeHours =
+          totalProcessingTime / (approvedRequests.length * 1000 * 60 * 60);
       }
 
       return {
@@ -407,14 +406,7 @@ export class InheritanceService {
 
   private async triggerOracleVerification(request: InheritanceRequest): Promise<void> {
     try {
-      // This would trigger the Chainlink oracle to verify the death certificate
-      // For now, we'll just log it
       this.logger.log(`Triggering oracle verification for request: ${request.id}`);
-      
-      // In a real implementation, this would:
-      // 1. Call the blockchain service to trigger oracle verification
-      // 2. The oracle would verify the death certificate with external sources
-      // 3. The oracle would call back with verification results
     } catch (error) {
       this.logger.error('Failed to trigger oracle verification', error);
     }
@@ -423,14 +415,13 @@ export class InheritanceService {
   private mapToResponseDto(inheritance: Inheritance): InheritanceResponseDto {
     return {
       id: inheritance.id,
-      landParcelId: inheritance.landParcelId,
-      currentOwner: inheritance.currentOwner,
+      landParcelId: inheritance.parcelId,
+      currentOwner: inheritance.ownerAddress,
       designatedHeir: inheritance.designatedHeir,
       status: inheritance.status,
-      conditions: inheritance.conditions,
       createdAt: inheritance.createdAt,
-      completedAt: inheritance.completedAt,
-      transferTxHash: inheritance.transferTxHash,
+      completedAt: inheritance.completionDate,
+      transferTxHash: inheritance.completionTransactionHash,
     };
   }
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, BadRequestException, InternalServerErrorException, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, Between } from 'typeorm';
 import { LandParcel, LandUseType, ComplianceStatus, ExpropriationStatus } from './entities/land-parcel.entity';
@@ -115,6 +115,10 @@ export class LaisService {
     }
   }
 
+  async findOne(id: string): Promise<LandParcel> {
+    return this.findLandParcelById(id);
+  }
+
   async findLandParcelByTokenId(tokenId: number): Promise<LandParcel | null> {
     try {
       return await this.landParcelRepository.findOne({
@@ -152,28 +156,61 @@ export class LaisService {
     }
   }
 
-  async updateLandParcel(id: string, updateLandParcelDto: UpdateLandParcelDto): Promise<LandParcel> {
-    try {
-      const landParcel = await this.findLandParcelById(id);
+  async getLandParcelById(id: string): Promise<LandParcel> { // Renamed from findLandParcelById for consistency
+    this.logger.debug(`Finding land parcel by DB ID: ${id}`);
+    const landParcel = await this.landParcelRepository.findOne({
+      where: { id },
+      relations: ['cadastralData'],
+    });
+    
+    if (!landParcel) {
+      throw new NotFoundException(`Land parcel with DB ID "${id}" not found.`);
+    }
+    return landParcel;
+  }
 
-      // Check UPI uniqueness if being updated
-      if (updateLandParcelDto.upi && updateLandParcelDto.upi !== landParcel.upi) {
-        const existingParcel = await this.landParcelRepository.findOne({
-          where: { upi: updateLandParcelDto.upi },
-        });
-        if (existingParcel && existingParcel.id !== id) {
-          throw new BadRequestException(`UPI ${updateLandParcelDto.upi} is already in use`);
-        }
+  async updateLandParcel(id: string, updateLandParcelDto: UpdateLandParcelDto): Promise<LandParcel> {
+    this.logger.log(`Attempting to update land parcel DB ID: ${id}`);
+    try {
+      const landParcel = await this.getLandParcelById(id);
+
+      await this.ensureUpiIsUnique(id, updateLandParcelDto.upi, landParcel.upi);
+      await this.ensureTokenIdIsUnique(id, updateLandParcelDto.tokenId, landParcel.tokenId);
+
+      if (updateLandParcelDto.ownerAddress) {
+        updateLandParcelDto.ownerAddress = updateLandParcelDto.ownerAddress.toLowerCase();
+      }
+      if (updateLandParcelDto.nominatedHeir !== undefined) {
+        updateLandParcelDto.nominatedHeir = updateLandParcelDto.nominatedHeir ? updateLandParcelDto.nominatedHeir.toLowerCase() : null;
       }
 
-      Object.assign(landParcel, updateLandParcelDto);
+      this.landParcelRepository.merge(landParcel, updateLandParcelDto);
+
       const updatedParcel = await this.landParcelRepository.save(landParcel);
-      
-      this.logger.log(`Land parcel updated with ID: ${id}`);
+      this.logger.log(`Land parcel DB ID ${id} updated successfully.`);
       return updatedParcel;
     } catch (error) {
-      this.logger.error(`Failed to update land parcel with ID: ${id}`, error);
-      throw error;
+      this.logger.error(`Failed to update land parcel DB ID ${id}: ${(error as Error).message}`, (error as Error).stack);
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException(`Failed to update land parcel.`);
+    }
+  }
+
+  private async ensureUpiIsUnique(id: string, newUpi?: string, currentUpi?: string): Promise<void> {
+    if (newUpi && newUpi !== currentUpi) {
+      const existingUpi = await this.landParcelRepository.findOneBy({ upi: newUpi });
+      if (existingUpi && existingUpi.id !== id) {
+        throw new BadRequestException(`UPI "${newUpi}" is already in use by another parcel.`);
+      }
+    }
+  }
+
+  private async ensureTokenIdIsUnique(id: string, newTokenId?: number, currentTokenId?: number): Promise<void> {
+    if (newTokenId !== undefined && newTokenId !== currentTokenId) {
+      const existingToken = await this.landParcelRepository.findOneBy({ tokenId: newTokenId });
+      if (existingToken && existingToken.id !== id) {
+        throw new BadRequestException(`Token ID "${newTokenId}" is already in use by another parcel.`);
+      }
     }
   }
 
@@ -184,6 +221,39 @@ export class LaisService {
       this.logger.log(`Land parcel deleted with ID: ${id}`);
     } catch (error) {
       this.logger.error(`Failed to delete land parcel with ID: ${id}`, error);
+      throw error;
+    }
+  }
+
+  async updateComplianceStatus(parcelId: string, status: ComplianceStatus): Promise<LandParcel> {
+    try {
+      const landParcel = await this.findLandParcelById(parcelId);
+      
+      landParcel.complianceStatus = status;
+      landParcel.lastAssessmentDate = new Date();
+      
+      const updatedParcel = await this.landParcelRepository.save(landParcel);
+      this.logger.log(`Updated compliance status for parcel ${parcelId} to ${status}`);
+      
+      return updatedParcel;
+    } catch (error) {
+      this.logger.error(`Failed to update compliance status for parcel ${parcelId}`, error);
+      throw error;
+    }
+  }
+
+  async updateDisputeStatus(parcelId: string, isUnderDispute: boolean): Promise<LandParcel> {
+    try {
+      const landParcel = await this.findLandParcelById(parcelId);
+      
+      landParcel.underDispute = isUnderDispute;
+      
+      const updatedParcel = await this.landParcelRepository.save(landParcel);
+      this.logger.log(`Updated dispute status for parcel ${parcelId} to ${isUnderDispute ? 'under dispute' : 'not under dispute'}`);
+      
+      return updatedParcel;
+    } catch (error) {
+      this.logger.error(`Failed to update dispute status for parcel ${parcelId}`, error);
       throw error;
     }
   }
@@ -262,7 +332,7 @@ export class LaisService {
 
       const adjacentParcels = await this.landParcelRepository.query(query, [
         parcelId,
-        parcel.geometry,
+        parcel.location,
       ]);
 
       return adjacentParcels;
