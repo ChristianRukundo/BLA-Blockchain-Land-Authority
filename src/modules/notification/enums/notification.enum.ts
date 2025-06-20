@@ -75,3 +75,38 @@ export enum NotificationType {
   // General
   GENERAL_NOTIFICATION = 'GENERAL_NOTIFICATION',
 }
+
+export enum NotificationStatus {
+  UNREAD = 'UNREAD',
+  READ = 'READ',
+  ARCHIVED = 'ARCHIVED',
+  DELETED = 'DELETED',
+  PENDING = 'PENDING',
+  FAILED = 'FAILED',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  ERROR = 'ERROR',
+}
+export enum NotificationFrequency {
+  IMMEDIATE = 'IMMEDIATE',
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
+  NEVER = 'NEVER',
+}
+
+export enum NotificationChannel {
+  IN_APP = 'IN_APP',
+  EMAIL = 'EMAIL',
+  SMS = 'SMS',
+  PUSH = 'PUSH',
+  WEBHOOK = 'WEBHOOK',
+  WEB = 'web',
+}
+
+export enum NotificationPriority {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  URGENT = 'URGENT',
+}

@@ -9,7 +9,7 @@ import {
   Index,
 } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
-import LandParcel from '../../lais/entities/land-parcel.entity';
+import { LandParcel } from '../../lais/entities/land-parcel.entity';
 
 export enum RequestStatus {
   PENDING = 'PENDING',

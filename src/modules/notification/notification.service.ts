@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Notification } from './entities/notification.entity';
 import { NotificationTemplate } from './entities/notification-template.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
-import { EmailService } from './email.service';
+import { EmailService } from '../email/email.service';
 import {
   CreateNotificationDto,
   UpdateNotificationDto,
@@ -26,7 +26,6 @@ import {
   NotificationType,
   NotificationStatus,
   NotificationChannel,
-  NotificationPriority,
 } from './enums/notification.enum';
 
 @Injectable()
@@ -107,6 +106,8 @@ export class NotificationService {
 
     return savedNotification;
   }
+
+
 
   async getUserNotifications(userId: string, query: NotificationQueryDto): Promise<any> {
     const queryBuilder = this.notificationRepository

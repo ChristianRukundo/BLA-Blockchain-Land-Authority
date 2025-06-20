@@ -92,6 +92,8 @@ export class EmailService {
     });
   }
 
+
+
   private loadTemplates() {
     try {
       const templatesDir = path.join(__dirname, 'templates');
@@ -156,7 +158,7 @@ export class EmailService {
       this.logger.error(`Failed to send email to ${to}:`, error);
       throw error;
     }
-  }
+  }  
 
   private generateBasicTemplate(subject: string, message: string): string {
     return `
