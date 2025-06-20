@@ -1,4 +1,4 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
   IsString,
   IsOptional,
@@ -14,11 +14,13 @@ import {
   Length,
   Matches,
   IsInt,
+  IsEthereumAddress,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { LandUseType, ComplianceStatus, ExpropriationStatus } from '../entities/land-parcel.entity';
 import { CadastralDataType, DataSource, DataQuality } from '../entities/cadastral-data.entity';
 import { ZoneType, ZoneStatus, PlanningAuthority } from '../entities/land-use-zone.entity';
+import { override } from 'joi';
 
 // Land Parcel DTOs
 export class CreateLandParcelDto {
@@ -164,9 +166,39 @@ export class CreateLandParcelDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+
+  @ApiPropertyOptional({ description: 'Nominated heir address for inheritance purposes', example: '0xabc...', nullable: true })
+  @IsOptional()
+  @IsEthereumAddress()
+  @Transform(({ value }) => value ? value.toLowerCase() : null) // Handle null, convert to lowercase
+  nominatedHeir?: string | null; // <<<< MAKE SURE THIS IS PRESENT AND CORRECTLY TYPED
 }
 
-export class UpdateLandParcelDto extends PartialType(CreateLandParcelDto) {}
+export class UpdateLandParcelDto extends PartialType(CreateLandParcelDto) {
+  
+  @ApiPropertyOptional({ description: 'Compliance status of the parcel', enum: ComplianceStatus })
+  @IsOptional()
+  @IsEnum(ComplianceStatus)
+  complianceStatus?: ComplianceStatus;
+
+  @ApiPropertyOptional({ description: 'Expropriation status of the parcel', enum: ExpropriationStatus })
+  @IsOptional()
+  @IsEnum(ExpropriationStatus)
+  expropriationStatus?: ExpropriationStatus;
+
+  @ApiPropertyOptional({ description: 'Date of last compliance assessment' })
+  @IsOptional()
+  @IsDateString()
+  lastAssessmentDate?: string;
+
+  @ApiPropertyOptional({ description: 'Flag indicating if the parcel is currently under dispute' })
+  @IsOptional()
+  @IsBoolean()
+  underDispute?: boolean;
+
+  
+}
 
 // Cadastral Data DTOs
 export class CreateCadastralDataDto {
@@ -278,8 +310,8 @@ export class CreateCadastralDataDto {
 }
 
 export class UpdateCadastralDataDto extends PartialType(CreateCadastralDataDto) {
-  @ApiProperty({ description: 'Land parcel ID cannot be updated', required: false })
-  landParcelId?: never;
+ 
+  override landParcelId?: never;
 }
 
 // Land Use Zone DTOs

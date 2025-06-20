@@ -1,31 +1,26 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum InheritanceStatus {
   PENDING = 'PENDING',
-  VERIFIED = 'VERIFIED',
-  COMPLETED = 'COMPLETED',
-  REJECTED = 'REJECTED',
+  ACTIVE = 'ACTIVE',
   CANCELLED = 'CANCELLED',
+  COMPLETED = 'COMPLETED',
+  EXPIRED = 'EXPIRED',
 }
 
-export enum VerificationSource {
-  NIDA = 'NIDA',
-  HOSPITAL = 'HOSPITAL',
-  COURT = 'COURT',
-  MANUAL = 'MANUAL',
-  ORACLE = 'ORACLE',
-}
-
-@Entity('inheritance_requests')
-export class InheritanceRequest {
+@Entity('inheritances')
+export class Inheritance {
   @ApiProperty({ description: 'Unique identifier' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
-
-  @ApiProperty({ description: 'On-chain request ID' })
-  @Column({ nullable: true })
-  requestId?: string;
 
   @ApiProperty({ description: 'Land parcel ID' })
   @Column()
@@ -33,11 +28,11 @@ export class InheritanceRequest {
 
   @ApiProperty({ description: 'Current owner wallet address' })
   @Column()
-  currentOwnerAddress: string;
+  ownerAddress: string;
 
-  @ApiProperty({ description: 'Heir wallet address' })
+  @ApiProperty({ description: 'Designated heir wallet address' })
   @Column()
-  heirAddress: string;
+  designatedHeir: string;
 
   @ApiProperty({ description: 'Inheritance status', enum: InheritanceStatus })
   @Column({
@@ -47,49 +42,45 @@ export class InheritanceRequest {
   })
   status: InheritanceStatus;
 
-  @ApiProperty({ description: 'Request date' })
+  @ApiProperty({ description: 'Creation date' })
   @Column('timestamp')
-  requestDate: Date;
+  creationDate: Date;
 
-  @ApiProperty({ description: 'Evidence hash from IPFS' })
-  @Column({ nullable: true })
-  evidenceHash?: string;
-
-  @ApiProperty({ description: 'Whether death has been verified' })
-  @Column('boolean', { default: false })
-  isVerified: boolean;
-
-  @ApiProperty({ description: 'Verification source', enum: VerificationSource })
-  @Column({
-    type: 'enum',
-    enum: VerificationSource,
-    nullable: true,
-  })
-  verificationSource?: VerificationSource;
-
-  @ApiProperty({ description: 'Verification details' })
-  @Column('text', { nullable: true })
-  verificationDetails?: string;
-
-  @ApiProperty({ description: 'Verification date' })
+  @ApiProperty({ description: 'Activation date' })
   @Column('timestamp', { nullable: true })
-  verificationDate?: Date;
+  activationDate?: Date;
 
-  @ApiProperty({ description: 'Processing date' })
+  @ApiProperty({ description: 'Expiration date' })
   @Column('timestamp', { nullable: true })
-  processedDate?: Date;
+  expirationDate?: Date;
 
-  @ApiProperty({ description: 'Execution transaction hash' })
-  @Column({ nullable: true })
-  executionTransactionHash?: string;
+  @ApiProperty({ description: 'Cancellation date' })
+  @Column('timestamp', { nullable: true })
+  cancellationDate?: Date;
+
+  @ApiProperty({ description: 'Completion date' })
+  @Column('timestamp', { nullable: true })
+  completionDate?: Date;
 
   @ApiProperty({ description: 'Cancellation reason' })
   @Column('text', { nullable: true })
   cancellationReason?: string;
 
-  @ApiProperty({ description: 'Oracle request ID' })
+  @ApiProperty({ description: 'Transaction hash for creation' })
   @Column({ nullable: true })
-  oracleRequestId?: string;
+  creationTransactionHash?: string;
+
+  @ApiProperty({ description: 'Transaction hash for activation' })
+  @Column({ nullable: true })
+  activationTransactionHash?: string;
+
+  @ApiProperty({ description: 'Transaction hash for cancellation' })
+  @Column({ nullable: true })
+  cancellationTransactionHash?: string;
+
+  @ApiProperty({ description: 'Transaction hash for completion' })
+  @Column({ nullable: true })
+  completionTransactionHash?: string;
 
   @ApiProperty({ description: 'Additional notes' })
   @Column('text', { nullable: true })
@@ -103,40 +94,31 @@ export class InheritanceRequest {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Computed properties
-  get canVerify(): boolean {
-    return this.status === InheritanceStatus.PENDING;
-  }
-
-  get canProcess(): boolean {
-    return this.status === InheritanceStatus.VERIFIED && this.isVerified;
+  get isActive(): boolean {
+    return this.status === InheritanceStatus.ACTIVE;
   }
 
   get canCancel(): boolean {
-    return this.status !== InheritanceStatus.COMPLETED;
+    return [InheritanceStatus.PENDING, InheritanceStatus.ACTIVE].includes(this.status);
   }
 
-  get isActive(): boolean {
-    return [
-      InheritanceStatus.PENDING,
-      InheritanceStatus.VERIFIED,
-    ].includes(this.status);
+  get canComplete(): boolean {
+    return this.status === InheritanceStatus.ACTIVE;
   }
 
-  get processingDays(): number {
-    if (!this.processedDate) return 0;
-    const requestDate = new Date(this.requestDate);
-    const processedDate = new Date(this.processedDate);
-    const diffTime = Math.abs(processedDate.getTime() - requestDate.getTime());
+  get daysActive(): number {
+    if (!this.activationDate) return 0;
+    const now = new Date();
+    const activationDate = new Date(this.activationDate);
+    const diffTime = Math.abs(now.getTime() - activationDate.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
-  get verificationDays(): number {
-    if (!this.verificationDate) return 0;
-    const requestDate = new Date(this.requestDate);
-    const verificationDate = new Date(this.verificationDate);
-    const diffTime = Math.abs(verificationDate.getTime() - requestDate.getTime());
+  get daysUntilExpiration(): number {
+    if (!this.expirationDate) return -1;
+    const now = new Date();
+    const expDate = new Date(this.expirationDate);
+    const diffTime = expDate.getTime() - now.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 }
-

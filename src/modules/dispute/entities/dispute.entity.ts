@@ -1,5 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { ApiProperty } from '@nestjs/swagger';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  OneToMany,
+  Index,
+} from 'typeorm';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { LandParcel } from '../../lais/entities/land-parcel.entity';
 
 export enum DisputeType {
   OWNERSHIP = 'OWNERSHIP',
@@ -13,242 +23,276 @@ export enum DisputeType {
 
 export enum DisputeStatus {
   CREATED = 'CREATED',
-  EVIDENCE_SUBMITTED = 'EVIDENCE_SUBMITTED',
-  ESCALATED_TO_KLEROS = 'ESCALATED_TO_KLEROS',
+  EVIDENCE_SUBMISSION = 'EVIDENCE_SUBMISSION',
+  PENDING_ARBITRATION = 'PENDING_ARBITRATION',
   UNDER_ARBITRATION = 'UNDER_ARBITRATION',
+  KLEROS_SUBMITTED = 'KLEROS_SUBMITTED',
+  JURY_SELECTION = 'JURY_SELECTION',
+  VOTING_PERIOD = 'VOTING_PERIOD',
+  AWAITING_RULING = 'AWAITING_RULING',
   RULING_GIVEN = 'RULING_GIVEN',
-  EXECUTED = 'EXECUTED',
-  APPEALED = 'APPEALED',
+  APPEAL_PERIOD = 'APPEAL_PERIOD',
+  UNDER_APPEAL = 'UNDER_APPEAL',
+  RULING_EXECUTED = 'RULING_EXECUTED',
   SETTLED = 'SETTLED',
+  RESOLVED = 'RESOLVED',
   CANCELLED = 'CANCELLED',
+  FAILED_ARBITRATION = 'FAILED_ARBITRATION',
 }
 
-export enum DisputeParty {
+export enum DisputeRuling {
+  PENDING = 'PENDING',
+  PLAINTIFF_WINS = 'PLAINTIFF_WINS',
+  DEFENDANT_WINS = 'DEFENDANT_WINS',
+  SETTLEMENT_REACHED = 'SETTLEMENT_REACHED',
+  DISMISSED = 'DISMISSED',
+  REFUSE_TO_ARBITRATE = 'REFUSE_TO_ARBITRATE',
+  OTHER = 'OTHER',
+}
+
+export enum DisputePartyType {
   PLAINTIFF = 'PLAINTIFF',
   DEFENDANT = 'DEFENDANT',
-  THIRD_PARTY = 'THIRD_PARTY',
+  INTERVENOR = 'INTERVENOR',
+  WITNESS = 'WITNESS',
+}
+
+@Entity('dispute_evidence')
+export class DisputeEvidence {
+  @ApiProperty()
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ApiProperty({ description: 'ID of the dispute this evidence belongs to' })
+  @Column('uuid')
+  @Index()
+  disputeId: string;
+
+  @ManyToOne(() => Dispute, dispute => dispute.evidenceEntries)
+  dispute: Dispute;
+
+  @ApiProperty({ description: 'Address of the party submitting the evidence' })
+  @Column()
+  @Index()
+  submitterAddress: string;
+
+  @ApiProperty({ enum: DisputePartyType, description: 'Role of the submitter in this dispute' })
+  @Column({ type: 'enum', enum: DisputePartyType, nullable: true })
+  submitterRole?: DisputePartyType;
+
+  @ApiProperty({ description: 'Title or brief name of the evidence' })
+  @Column()
+  title: string;
+
+  @ApiProperty({ description: 'Detailed description of the evidence' })
+  @Column('text')
+  description: string;
+
+  @ApiProperty({ description: 'IPFS hash or secure URL of the evidence file/document' })
+  @Column()
+  evidenceHashOrUrl: string;
+
+  @ApiPropertyOptional({ description: 'Type of the evidence file (e.g., PDF, image, video)' })
+  @Column({ nullable: true })
+  fileType?: string;
+
+  @ApiPropertyOptional({ description: 'Size of the evidence file in bytes' })
+  @Column('bigint', { nullable: true })
+  fileSize?: string;
+
+  @ApiProperty({ description: 'Date and time when the evidence was submitted' })
+  @CreateDateColumn()
+  submittedDate: Date;
+
+  @ApiPropertyOptional({ description: 'Additional metadata for the evidence' })
+  @Column('jsonb', { nullable: true })
+  metadata?: any;
 }
 
 @Entity('disputes')
 export class Dispute {
-  @ApiProperty({ description: 'Unique identifier' })
+  @ApiProperty({ description: 'Unique database identifier' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ description: 'On-chain dispute ID' })
-  @Column({ nullable: true })
-  disputeId?: string;
+  @ApiPropertyOptional({ description: 'On-chain dispute ID (if applicable, e.g., from Kleros)' })
+  @Column({ nullable: true, unique: true, type: 'varchar' })
+  @Index()
+  externalDisputeId?: string;
 
-  @ApiProperty({ description: 'Kleros dispute ID' })
-  @Column({ nullable: true })
-  klerosDisputeId?: string;
-
-  @ApiProperty({ description: 'Land parcel ID' })
-  @Column()
+  @ApiProperty({ description: 'ID of the Land Parcel this dispute relates to' })
+  @Column('uuid')
+  @Index()
   parcelId: string;
 
-  @ApiProperty({ description: 'Dispute type', enum: DisputeType })
-  @Column({
-    type: 'enum',
-    enum: DisputeType,
-  })
+  @ManyToOne(() => LandParcel, { onDelete: 'SET NULL', nullable: true })
+  parcel?: LandParcel;
+
+  @ApiProperty({ description: 'Type of the dispute', enum: DisputeType })
+  @Column({ type: 'enum', enum: DisputeType })
   disputeType: DisputeType;
 
-  @ApiProperty({ description: 'Dispute status', enum: DisputeStatus })
-  @Column({
-    type: 'enum',
-    enum: DisputeStatus,
-    default: DisputeStatus.CREATED,
-  })
+  @ApiProperty({ description: 'Current status of the dispute', enum: DisputeStatus })
+  @Column({ type: 'enum', enum: DisputeStatus, default: DisputeStatus.CREATED })
   status: DisputeStatus;
 
-  @ApiProperty({ description: 'Dispute title' })
+  @ApiProperty({ description: 'Title of the dispute' })
   @Column()
   title: string;
 
-  @ApiProperty({ description: 'Dispute description' })
+  @ApiProperty({ description: 'Detailed description of the dispute claim' })
   @Column('text')
   description: string;
 
-  @ApiProperty({ description: 'Plaintiff wallet address' })
+  @ApiProperty({ description: 'Wallet address of the plaintiff (initiator)' })
   @Column()
+  @Index()
   plaintiffAddress: string;
 
-  @ApiProperty({ description: 'Defendant wallet address' })
+  @ApiProperty({ description: 'Wallet address of the defendant' })
   @Column()
+  @Index()
   defendantAddress: string;
 
-  @ApiProperty({ description: 'Third party addresses involved' })
-  @Column('simple-array', { default: '' })
-  thirdPartyAddresses: string[];
+  @ApiPropertyOptional({ description: 'Other involved parties (addresses)', type: [String] })
+  @Column('simple-array', { nullable: true })
+  involvedParties?: string[];
 
-  @ApiProperty({ description: 'Dispute creation date' })
-  @Column('timestamp')
+  @ApiProperty({ description: 'Date when the dispute was created in the system' })
+  @CreateDateColumn()
   createdDate: Date;
 
-  @ApiProperty({ description: 'Evidence submission deadline' })
-  @Column('timestamp', { nullable: true })
-  evidenceDeadline?: Date;
+  @ApiPropertyOptional({ description: 'Deadline for evidence submission' })
+  @Column('timestamp with time zone', { nullable: true })
+  evidenceSubmissionDeadline?: Date;
 
-  @ApiProperty({ description: 'Evidence hashes from IPFS' })
-  @Column('simple-array', { default: '' })
-  evidenceHashes: string[];
+  @OneToMany(() => DisputeEvidence, evidence => evidence.dispute, { cascade: true, eager: false })
+  evidenceEntries?: DisputeEvidence[];
 
-  @ApiProperty({ description: 'Evidence submitted by plaintiff' })
-  @Column('simple-array', { default: '' })
-  plaintiffEvidence: string[];
+  @ApiPropertyOptional({
+    description: 'Date when the dispute was escalated to an external arbitrator',
+  })
+  @Column('timestamp with time zone', { nullable: true })
+  escalationDate?: Date;
 
-  @ApiProperty({ description: 'Evidence submitted by defendant' })
-  @Column('simple-array', { default: '' })
-  defendantEvidence: string[];
+  @ApiPropertyOptional({ description: 'Fee paid for arbitration (as string for large numbers)' })
+  @Column('decimal', { precision: 30, scale: 0, nullable: true })
+  arbitrationFeePaid?: string;
 
-  @ApiProperty({ description: 'Evidence submitted by third parties' })
-  @Column('simple-array', { default: '' })
-  thirdPartyEvidence: string[];
-
-  @ApiProperty({ description: 'Date when escalated to Kleros' })
-  @Column('timestamp', { nullable: true })
-  escalatedDate?: Date;
-
-  @ApiProperty({ description: 'Kleros arbitration fee' })
-  @Column('decimal', { precision: 18, scale: 0, nullable: true })
-  arbitrationFee?: string;
-
-  @ApiProperty({ description: 'Kleros court ID' })
+  @ApiPropertyOptional({ description: 'ID or name of the arbitration court/platform' })
   @Column({ nullable: true })
-  klerosCourtId?: string;
+  arbitrationCourtId?: string;
 
-  @ApiProperty({ description: 'Number of jurors' })
+  @ApiPropertyOptional({ description: 'Number of arbitrators/jurors assigned' })
   @Column('int', { nullable: true })
-  numberOfJurors?: number;
+  numberOfArbitrators?: number;
 
-  @ApiProperty({ description: 'Ruling date' })
-  @Column('timestamp', { nullable: true })
+  @ApiPropertyOptional({
+    description: 'The final ruling given in the dispute',
+    enum: DisputeRuling,
+  })
+  @Column({ type: 'enum', enum: DisputeRuling, nullable: true })
+  ruling?: DisputeRuling;
+
+  @ApiPropertyOptional({ description: 'Date when the final ruling was given' })
+  @Column('timestamp with time zone', { nullable: true })
   rulingDate?: Date;
 
-  @ApiProperty({ description: 'Kleros ruling (0=refuse to arbitrate, 1=plaintiff wins, 2=defendant wins)' })
-  @Column('int', { nullable: true })
-  klerosRuling?: number;
-
-  @ApiProperty({ description: 'Ruling details' })
+  @ApiPropertyOptional({ description: 'Detailed reasoning or text of the ruling' })
   @Column('text', { nullable: true })
   rulingDetails?: string;
 
-  @ApiProperty({ description: 'Date when ruling was executed' })
-  @Column('timestamp', { nullable: true })
-  executedDate?: Date;
+  @ApiPropertyOptional({ description: 'Date when the ruling was (or is to be) actioned/executed' })
+  @Column('timestamp with time zone', { nullable: true })
+  resolvedDate?: Date;
 
-  @ApiProperty({ description: 'Execution transaction hash' })
+  @ApiPropertyOptional({
+    description: 'Transaction hash if ruling execution involved an on-chain transaction',
+  })
   @Column({ nullable: true })
   executionTransactionHash?: string;
 
-  @ApiProperty({ description: 'Appeal deadline' })
-  @Column('timestamp', { nullable: true })
+  @ApiPropertyOptional({ description: 'Deadline for filing an appeal after a ruling' })
+  @Column('timestamp with time zone', { nullable: true })
   appealDeadline?: Date;
 
-  @ApiProperty({ description: 'Whether dispute has been appealed' })
-  @Column('boolean', { default: false })
-  isAppealed: boolean;
+  @ApiProperty({ description: 'Number of times this dispute has been appealed' })
+  @Column('int', { default: 0 })
+  appealCount: number;
 
-  @ApiProperty({ description: 'Appeal fee' })
-  @Column('decimal', { precision: 18, scale: 0, nullable: true })
-  appealFee?: string;
+  @ApiPropertyOptional({ description: 'Fee paid for the latest appeal (as string)' })
+  @Column('decimal', { precision: 30, scale: 0, nullable: true })
+  appealFeePaid?: string;
 
-  @ApiProperty({ description: 'Settlement amount' })
-  @Column('decimal', { precision: 18, scale: 2, nullable: true })
-  settlementAmount?: number;
+  @ApiPropertyOptional({ description: 'Amount agreed upon if the dispute was settled (as string)' })
+  @Column('decimal', { precision: 30, scale: 0, nullable: true })
+  settlementAmount?: string;
 
-  @ApiProperty({ description: 'Settlement date' })
-  @Column('timestamp', { nullable: true })
-  settlementDate?: Date;
-
-  @ApiProperty({ description: 'Cancellation reason' })
+  @ApiPropertyOptional({ description: 'Reason if the dispute was cancelled' })
   @Column('text', { nullable: true })
   cancellationReason?: string;
 
-  @ApiProperty({ description: 'Additional metadata' })
+  @ApiPropertyOptional({ description: 'General notes or internal comments about the dispute' })
+  @Column('text', { nullable: true })
+  notes?: string;
+
+  @ApiPropertyOptional({ description: 'Additional metadata (JSON format)' })
   @Column('jsonb', { nullable: true })
   metadata?: any;
 
-  @ApiProperty({ description: 'Creation timestamp' })
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @ApiProperty({ description: 'Last update timestamp' })
+  @ApiProperty({ description: 'Timestamp of the last update to this record' })
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Computed properties
+  @ApiProperty({ description: 'Indicates if evidence can currently be submitted' })
   get canSubmitEvidence(): boolean {
-    return this.status === DisputeStatus.CREATED && 
-           this.evidenceDeadline && 
-           new Date(this.evidenceDeadline) > new Date();
+    return (
+      (this.status === DisputeStatus.CREATED ||
+        this.status === DisputeStatus.EVIDENCE_SUBMISSION) &&
+      this.evidenceSubmissionDeadline &&
+      new Date() < new Date(this.evidenceSubmissionDeadline)
+    );
   }
 
-  get canEscalate(): boolean {
-    return this.status === DisputeStatus.EVIDENCE_SUBMITTED && !this.klerosDisputeId;
+  @ApiProperty({ description: 'Indicates if the dispute can be escalated to arbitration' })
+  get canEscalateToArbitration(): boolean {
+    return (
+      (this.status === DisputeStatus.EVIDENCE_SUBMISSION &&
+        (!this.evidenceSubmissionDeadline ||
+          new Date() >= new Date(this.evidenceSubmissionDeadline))) ||
+      this.status === DisputeStatus.CREATED
+    );
   }
 
+  @ApiProperty({ description: 'Indicates if the current ruling can be appealed' })
   get canAppeal(): boolean {
-    return this.status === DisputeStatus.RULING_GIVEN && 
-           this.appealDeadline && 
-           new Date(this.appealDeadline) > new Date() &&
-           !this.isAppealed;
+    return (
+      this.status === DisputeStatus.RULING_GIVEN &&
+      this.appealDeadline &&
+      new Date() < new Date(this.appealDeadline) &&
+      this.appealCount < (this.metadata?.maxAppeals || 1)
+    );
   }
 
-  get canExecute(): boolean {
-    return this.status === DisputeStatus.RULING_GIVEN && 
-           this.klerosRuling !== undefined &&
-           this.klerosRuling !== 0 &&
-           !this.executionTransactionHash &&
-           (!this.appealDeadline || new Date(this.appealDeadline) <= new Date());
+  @ApiProperty({ description: 'Indicates if the ruling can be executed' })
+  get canExecuteRuling(): boolean {
+    return (
+      this.status === DisputeStatus.RULING_GIVEN &&
+      !!this.ruling &&
+      this.ruling !== DisputeRuling.PENDING &&
+      !this.executionTransactionHash &&
+      (!this.appealDeadline || new Date() >= new Date(this.appealDeadline) || !this.canAppeal)
+    );
   }
 
+  @ApiProperty({ description: 'Indicates if the dispute is considered active/open' })
   get isActive(): boolean {
-    return [
-      DisputeStatus.CREATED,
-      DisputeStatus.EVIDENCE_SUBMITTED,
-      DisputeStatus.ESCALATED_TO_KLEROS,
-      DisputeStatus.UNDER_ARBITRATION,
-      DisputeStatus.RULING_GIVEN,
+    return ![
+      DisputeStatus.RESOLVED,
+      DisputeStatus.CANCELLED,
+      DisputeStatus.RULING_EXECUTED,
+      DisputeStatus.SETTLED,
+      DisputeStatus.FAILED_ARBITRATION,
     ].includes(this.status);
   }
-
-  get totalEvidenceCount(): number {
-    return this.evidenceHashes.length;
-  }
-
-  get processingDays(): number {
-    const endDate = this.executedDate || this.settlementDate || new Date();
-    const startDate = new Date(this.createdDate);
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }
-
-  get daysUntilEvidenceDeadline(): number {
-    if (!this.evidenceDeadline) return -1;
-    const now = new Date();
-    const deadline = new Date(this.evidenceDeadline);
-    const diffTime = deadline.getTime() - now.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }
-
-  get daysUntilAppealDeadline(): number {
-    if (!this.appealDeadline) return -1;
-    const now = new Date();
-    const deadline = new Date(this.appealDeadline);
-    const diffTime = deadline.getTime() - now.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }
-
-  get rulingText(): string {
-    if (this.klerosRuling === undefined) return 'Pending';
-    switch (this.klerosRuling) {
-      case 0: return 'Refuse to arbitrate';
-      case 1: return 'Plaintiff wins';
-      case 2: return 'Defendant wins';
-      default: return 'Unknown ruling';
-    }
-  }
 }
-

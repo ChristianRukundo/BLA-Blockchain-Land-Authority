@@ -1,19 +1,19 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
-  IsOptional,
   IsEnum,
-  IsDateString,
+  IsOptional,
   IsBoolean,
-  IsUUID,
+  IsDateString,
+  IsObject,
   IsEthereumAddress,
-  IsNumber,
-  Min,
-  Max,
+  IsUUID,
   Length,
+  ValidateNested,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
-import { InheritanceStatus, VerificationSource } from '../entities/inheritance.entity';
+import { Type } from 'class-transformer';
+import { InheritanceStatus } from '../entities/inheritance.entity';
+import { RequestStatus } from '../entities/inheritance-request.entity';
 
 export class CreateInheritanceDto {
   @ApiProperty({ description: 'Land parcel ID' })
@@ -28,58 +28,77 @@ export class CreateInheritanceDto {
   @IsEthereumAddress()
   designatedHeir: string;
 
-  @ApiPropertyOptional({ description: 'Inheritance conditions' })
+  @ApiProperty({ description: 'Inheritance conditions', required: false })
   @IsOptional()
   @IsString()
   @Length(0, 2000)
   conditions?: string;
 
-  @ApiPropertyOptional({ description: 'Additional metadata' })
+  @ApiProperty({ description: 'Additional notes', required: false })
   @IsOptional()
   @IsString()
-  metadata?: string;
+  @Length(0, 1000)
+  notes?: string;
+}
+
+export class CreateInheritanceRequestDto {
+  @ApiProperty({ description: 'Land parcel ID' })
+  @IsUUID()
+  parcelId: string;
+
+  @ApiProperty({ description: 'Requester wallet address' })
+  @IsEthereumAddress()
+  requestedBy: string;
+
+  @ApiProperty({ description: 'Death certificate IPFS hash' })
+  @IsString()
+  @Length(0, 100)
+  deathCertificateHash: string;
+
+  @ApiProperty({ description: 'Additional supporting documents IPFS hash', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(0, 100)
+  supportingDocumentsHash?: string;
+
+  @ApiProperty({ description: 'Additional notes', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(0, 1000)
+  notes?: string;
 }
 
 export class UpdateInheritanceDto {
-  @ApiPropertyOptional({ description: 'Designated heir wallet address' })
+  @ApiProperty({ description: 'Designated heir wallet address', required: false })
   @IsOptional()
   @IsEthereumAddress()
   designatedHeir?: string;
 
-  @ApiPropertyOptional({ description: 'Inheritance conditions' })
+  @ApiProperty({ description: 'Inheritance status', enum: InheritanceStatus, required: false })
+  @IsOptional()
+  @IsEnum(InheritanceStatus)
+  status?: InheritanceStatus;
+
+  @ApiProperty({ description: 'Inheritance conditions', required: false })
   @IsOptional()
   @IsString()
   @Length(0, 2000)
   conditions?: string;
 
-  @ApiPropertyOptional({ description: 'Additional metadata' })
+  @ApiProperty({ description: 'Additional notes', required: false })
   @IsOptional()
   @IsString()
-  metadata?: string;
+  @Length(0, 1000)
+  notes?: string;
 }
 
-export class CreateInheritanceRequestDto {
-  @ApiProperty({ description: 'Inheritance ID' })
-  @IsUUID()
-  inheritanceId: string;
-
-  @ApiProperty({ description: 'Requested by (heir address)' })
-  @IsEthereumAddress()
-  requestedBy: string;
-
-  @ApiPropertyOptional({ description: 'Death certificate hash from IPFS' })
-  @IsOptional()
+export class ProcessInheritanceDto {
+  @ApiProperty({ description: 'Transaction hash for completion' })
   @IsString()
-  @Length(0, 100)
-  deathCertificateHash?: string;
+  @Length(66, 66)
+  transactionHash: string;
 
-  @ApiPropertyOptional({ description: 'Additional evidence hash from IPFS' })
-  @IsOptional()
-  @IsString()
-  @Length(0, 100)
-  additionalEvidence?: string;
-
-  @ApiPropertyOptional({ description: 'Additional notes' })
+  @ApiProperty({ description: 'Additional notes', required: false })
   @IsOptional()
   @IsString()
   @Length(0, 1000)
@@ -87,208 +106,97 @@ export class CreateInheritanceRequestDto {
 }
 
 export class ProcessInheritanceRequestDto {
-  @ApiProperty({ description: 'Whether the request is approved' })
-  @IsBoolean()
-  approved: boolean;
-
-  @ApiProperty({ description: 'Processed by (admin address)' })
+  @ApiProperty({ description: 'Processor wallet address' })
   @IsEthereumAddress()
   processedBy: string;
 
-  @ApiPropertyOptional({ description: 'Verification notes' })
+  @ApiProperty({ description: 'Request status', enum: RequestStatus })
+  @IsEnum(RequestStatus)
+  status: RequestStatus;
+
+  @ApiProperty({ description: 'Verification notes', required: false })
   @IsOptional()
   @IsString()
   @Length(0, 1000)
   verificationNotes?: string;
 
-  @ApiPropertyOptional({ description: 'Oracle verification transaction hash' })
+  @ApiProperty({ description: 'Transaction hash for approval', required: false })
   @IsOptional()
   @IsString()
-  @Length(0, 100)
-  oracleVerificationTxHash?: string;
+  @Length(66, 66)
+  transactionHash?: string;
+}
+
+export class CancelInheritanceDto {
+  @ApiProperty({ description: 'Address of the canceller' })
+  @IsEthereumAddress()
+  cancelledBy: string;
+
+  @ApiProperty({ description: 'Reason for cancellation' })
+  @IsString()
+  @Length(10, 1000)
+  reason: string;
 }
 
 export class InheritanceFilterDto {
-  @ApiPropertyOptional({ description: 'Filter by land parcel ID' })
+  @ApiProperty({
+    description: 'Filter by inheritance status',
+    enum: InheritanceStatus,
+    required: false,
+  })
   @IsOptional()
-  @IsUUID()
-  landParcelId?: string;
+  @IsEnum(InheritanceStatus)
+  status?: InheritanceStatus;
 
-  @ApiPropertyOptional({ description: 'Filter by current owner address' })
+  @ApiProperty({ description: 'Filter by current owner address', required: false })
   @IsOptional()
   @IsEthereumAddress()
   currentOwner?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by designated heir address' })
+  @ApiProperty({ description: 'Filter by designated heir address', required: false })
   @IsOptional()
   @IsEthereumAddress()
   designatedHeir?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by status', enum: InheritanceStatus })
+  @ApiProperty({ description: 'Filter by land parcel ID', required: false })
   @IsOptional()
-  @IsEnum(InheritanceStatus)
-  status?: InheritanceStatus;
+  @IsUUID()
+  landParcelId?: string;
 
-  @ApiPropertyOptional({ description: 'Filter from created date' })
-  @IsOptional()
-  @IsDateString()
-  createdDateFrom?: string;
-
-  @ApiPropertyOptional({ description: 'Filter to created date' })
+  @ApiProperty({ description: 'Filter by creation date from', required: false })
   @IsOptional()
   @IsDateString()
-  createdDateTo?: string;
+  creationDateFrom?: string;
 
-  @ApiPropertyOptional({ description: 'Show only active inheritances' })
+  @ApiProperty({ description: 'Filter by creation date to', required: false })
+  @IsOptional()
+  @IsDateString()
+  creationDateTo?: string;
+
+  @ApiProperty({ description: 'Filter by active inheritances only', required: false })
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
   activeOnly?: boolean;
 
-  @ApiPropertyOptional({ description: 'Page number', default: 1 })
+  @ApiProperty({ description: 'Page number', required: false, default: 1 })
   @IsOptional()
-  @IsNumber()
-  @Min(1)
   @Type(() => Number)
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: 'Items per page', default: 10 })
+  @ApiProperty({ description: 'Items per page', required: false, default: 10 })
   @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(100)
   @Type(() => Number)
   limit?: number = 10;
 
-  @ApiPropertyOptional({ description: 'Sort by field', default: 'createdAt' })
+  @ApiProperty({ description: 'Sort field', required: false, default: 'createdAt' })
   @IsOptional()
   @IsString()
   sortBy?: string = 'createdAt';
 
-  @ApiPropertyOptional({ description: 'Sort order', enum: ['ASC', 'DESC'], default: 'DESC' })
+  @ApiProperty({ description: 'Sort order', required: false, default: 'DESC' })
   @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
+  @IsString()
   sortOrder?: 'ASC' | 'DESC' = 'DESC';
-}
-
-export class InheritanceRequestFilterDto {
-  @ApiPropertyOptional({ description: 'Filter by inheritance ID' })
-  @IsOptional()
-  @IsUUID()
-  inheritanceId?: string;
-
-  @ApiPropertyOptional({ description: 'Filter by requested by (heir address)' })
-  @IsOptional()
-  @IsEthereumAddress()
-  requestedBy?: string;
-
-  @ApiPropertyOptional({ description: 'Filter by status', enum: InheritanceStatus })
-  @IsOptional()
-  @IsEnum(InheritanceStatus)
-  status?: InheritanceStatus;
-
-  @ApiPropertyOptional({ description: 'Filter by verification source', enum: VerificationSource })
-  @IsOptional()
-  @IsEnum(VerificationSource)
-  verificationSource?: VerificationSource;
-
-  @ApiPropertyOptional({ description: 'Filter from request date' })
-  @IsOptional()
-  @IsDateString()
-  requestDateFrom?: string;
-
-  @ApiPropertyOptional({ description: 'Filter to request date' })
-  @IsOptional()
-  @IsDateString()
-  requestDateTo?: string;
-
-  @ApiPropertyOptional({ description: 'Show only pending requests' })
-  @IsOptional()
-  @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
-  pendingOnly?: boolean;
-
-  @ApiPropertyOptional({ description: 'Show only verified requests' })
-  @IsOptional()
-  @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
-  verifiedOnly?: boolean;
-
-  @ApiPropertyOptional({ description: 'Page number', default: 1 })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Type(() => Number)
-  page?: number = 1;
-
-  @ApiPropertyOptional({ description: 'Items per page', default: 10 })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  @Type(() => Number)
-  limit?: number = 10;
-
-  @ApiPropertyOptional({ description: 'Sort by field', default: 'requestDate' })
-  @IsOptional()
-  @IsString()
-  sortBy?: string = 'requestDate';
-
-  @ApiPropertyOptional({ description: 'Sort order', enum: ['ASC', 'DESC'], default: 'DESC' })
-  @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC' = 'DESC';
-}
-
-export class VerifyDeathDto {
-  @ApiProperty({ description: 'Whether the person is deceased' })
-  @IsBoolean()
-  isDeceased: boolean;
-
-  @ApiProperty({ description: 'Verification source', enum: VerificationSource })
-  @IsEnum(VerificationSource)
-  verificationSource: VerificationSource;
-
-  @ApiPropertyOptional({ description: 'Verification details' })
-  @IsOptional()
-  @IsString()
-  @Length(0, 1000)
-  verificationDetails?: string;
-
-  @ApiPropertyOptional({ description: 'Death certificate reference' })
-  @IsOptional()
-  @IsString()
-  @Length(0, 100)
-  deathCertificateRef?: string;
-
-  @ApiPropertyOptional({ description: 'Date of death' })
-  @IsOptional()
-  @IsDateString()
-  dateOfDeath?: string;
-}
-
-export class ProcessInheritanceDto {
-  @ApiProperty({ description: 'Execution transaction hash' })
-  @IsString()
-  @Length(66, 66)
-  executionTransactionHash: string;
-
-  @ApiPropertyOptional({ description: 'Additional notes' })
-  @IsOptional()
-  @IsString()
-  @Length(0, 1000)
-  notes?: string;
-}
-
-export class CancelInheritanceDto {
-  @ApiProperty({ description: 'Cancelled by address' })
-  @IsEthereumAddress()
-  cancelledBy: string;
-
-  @ApiProperty({ description: 'Cancellation reason' })
-  @IsString()
-  @Length(10, 1000)
-  reason: string;
 }
 
 export class InheritanceResponseDto {
@@ -298,25 +206,22 @@ export class InheritanceResponseDto {
   @ApiProperty({ description: 'Land parcel ID' })
   landParcelId: string;
 
-  @ApiProperty({ description: 'Current owner address' })
+  @ApiProperty({ description: 'Current owner wallet address' })
   currentOwner: string;
 
-  @ApiProperty({ description: 'Designated heir address' })
+  @ApiProperty({ description: 'Designated heir wallet address' })
   designatedHeir: string;
 
   @ApiProperty({ description: 'Inheritance status', enum: InheritanceStatus })
   status: InheritanceStatus;
 
-  @ApiPropertyOptional({ description: 'Inheritance conditions' })
-  conditions?: string;
-
   @ApiProperty({ description: 'Creation timestamp' })
   createdAt: Date;
 
-  @ApiPropertyOptional({ description: 'Completion timestamp' })
+  @ApiProperty({ description: 'Completion timestamp', required: false })
   completedAt?: Date;
 
-  @ApiPropertyOptional({ description: 'Transfer transaction hash' })
+  @ApiProperty({ description: 'Transfer transaction hash', required: false })
   transferTxHash?: string;
 }
 
@@ -338,28 +243,28 @@ export class InheritanceRequestResponseDto {
   @ApiProperty({ description: 'Request ID' })
   id: string;
 
-  @ApiProperty({ description: 'Inheritance ID' })
+  @ApiProperty({ description: 'Associated inheritance ID' })
   inheritanceId: string;
 
-  @ApiProperty({ description: 'Requested by (heir address)' })
+  @ApiProperty({ description: 'Requester wallet address' })
   requestedBy: string;
 
-  @ApiProperty({ description: 'Request status', enum: InheritanceStatus })
-  status: InheritanceStatus;
+  @ApiProperty({ description: 'Request status', enum: RequestStatus })
+  status: RequestStatus;
 
-  @ApiPropertyOptional({ description: 'Death certificate hash' })
+  @ApiProperty({ description: 'Death certificate hash', required: false })
   deathCertificateHash?: string;
 
   @ApiProperty({ description: 'Creation timestamp' })
   createdAt: Date;
 
-  @ApiPropertyOptional({ description: 'Processing timestamp' })
+  @ApiProperty({ description: 'Processing timestamp', required: false })
   processedAt?: Date;
 
-  @ApiPropertyOptional({ description: 'Processed by address' })
+  @ApiProperty({ description: 'Processor wallet address', required: false })
   processedBy?: string;
 
-  @ApiPropertyOptional({ description: 'Verification notes' })
+  @ApiProperty({ description: 'Verification notes', required: false })
   verificationNotes?: string;
 }
 
@@ -391,7 +296,7 @@ export class InheritanceStatisticsDto {
   inheritancesByStatus: Record<InheritanceStatus, number>;
 
   @ApiProperty({ description: 'Requests by status' })
-  requestsByStatus: Record<string, number>;
+  requestsByStatus: Record<RequestStatus, number>;
 
   @ApiProperty({ description: 'Average processing time in hours' })
   averageProcessingTimeHours: number;

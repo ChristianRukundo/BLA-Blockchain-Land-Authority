@@ -34,13 +34,13 @@ export class NotificationService {
 
   constructor(
     @InjectRepository(Notification)
-    private notificationRepository: Repository<Notification>,
+    private readonly notificationRepository: Repository<Notification>,
     @InjectRepository(NotificationTemplate)
-    private templateRepository: Repository<NotificationTemplate>,
+    private readonly templateRepository: Repository<NotificationTemplate>,
     @InjectRepository(NotificationPreference)
-    private preferenceRepository: Repository<NotificationPreference>,
-    private emailService: EmailService,
-    private configService: ConfigService,
+    private readonly preferenceRepository: Repository<NotificationPreference>,
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
   ) {}
 
   async createNotification(createNotificationDto: CreateNotificationDto): Promise<Notification> {
@@ -106,8 +106,6 @@ export class NotificationService {
 
     return savedNotification;
   }
-
-
 
   async getUserNotifications(userId: string, query: NotificationQueryDto): Promise<any> {
     const queryBuilder = this.notificationRepository
@@ -518,12 +516,17 @@ export class NotificationService {
       const subject = template?.formatEmailSubject(notification.data) || notification.title;
       const content = template?.formatEmailContent(notification.data) || notification.content;
 
-      return await this.emailService.sendNotificationEmail(
+      await this.emailService.sendEmail(
         email,
         subject,
-        content,
-        notification.data,
+       
+        'notification', 
+        {
+          content,
+          ...notification.data,
+        },
       );
+      return true;
     } catch (error) {
       this.logger.error(`Failed to send email notification:`, error);
       return false;

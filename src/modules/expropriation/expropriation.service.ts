@@ -10,10 +10,10 @@ import {
   ClaimCompensationDto,
   CompleteExpropriationDto,
 } from './dto/expropriation.dto';
-import { LandParcelService } from '../land-parcel/land-parcel.service';
+import { LaisService } from '../lais/lais.service';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { NotificationService } from '../notification/notification.service';
-import { PaginatedResult } from '../../shared/interfaces/paginated-result.interface';
+import { PaginatedResult } from '@/shared/paginated-result.interface';
 import { ethers } from 'ethers';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '../notification/enums/notification.enum';
@@ -29,7 +29,7 @@ export class ExpropriationService {
   constructor(
     @InjectRepository(Expropriation)
     private expropriationRepository: Repository<Expropriation>,
-    private landParcelService: LandParcelService,
+    private laisService: LaisService,
     private ipfsService: IpfsService,
     private notificationService: NotificationService,
     private configService: ConfigService,
@@ -47,7 +47,6 @@ export class ExpropriationService {
 
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
 
-    // Initialize contract instances with ABIs
     const expropriationABI = [
       'function flagParcelForExpropriation(uint256 tokenId, string memory reason, uint256 proposedCompensation) external',
       'function depositCompensation(uint256 tokenId) external payable',
@@ -90,13 +89,11 @@ export class ExpropriationService {
   }
 
   async createExpropriation(dto: CreateExpropriationDto): Promise<Expropriation> {
-    // Validate parcel exists
-    const parcel = await this.landParcelService.findById(dto.parcelId);
+    const parcel = await this.laisService.findOne(dto.parcelId);
     if (!parcel) {
       throw new NotFoundException(`Parcel with ID ${dto.parcelId} not found`);
     }
 
-    // Check if parcel exists on-chain
     const tokenExists = await this.landParcelNFTContract.exists(parseInt(dto.parcelId));
     if (!tokenExists) {
       throw new BadRequestException(
@@ -104,7 +101,6 @@ export class ExpropriationService {
       );
     }
 
-    // Upload expropriation documents to IPFS
     let reasonDocumentHash = dto.reasonDocumentHash;
     if (!reasonDocumentHash && dto.reasonDocument) {
       reasonDocumentHash = await this.ipfsService.uploadJson({
@@ -119,7 +115,6 @@ export class ExpropriationService {
       });
     }
 
-    // Create expropriation record
     const expropriation = this.expropriationRepository.create({
       ...dto,
       reasonDocumentHash,
@@ -129,7 +124,6 @@ export class ExpropriationService {
 
     const savedExpropriation = await this.expropriationRepository.save(expropriation);
 
-    // Flag parcel on smart contract
     try {
       const signer = new ethers.Wallet(
         this.configService.get<string>('PRIVATE_KEY'),
@@ -137,7 +131,7 @@ export class ExpropriationService {
       );
       const contractWithSigner = this.expropriationContract.connect(signer);
 
-      const tx = await contractWithSigner.flagParcelForExpropriation(
+      const tx = await contractWithSigner['flagParcelForExpropriation'](
         parseInt(dto.parcelId),
         reasonDocumentHash || dto.reason,
         ethers.parseEther(dto.proposedCompensation.toString()),
@@ -145,20 +139,17 @@ export class ExpropriationService {
 
       const receipt = await tx.wait();
 
-      // Update with transaction hash
       savedExpropriation.flagTransactionHash = receipt.hash;
       await this.expropriationRepository.save(savedExpropriation);
     } catch (error) {
       this.logger.error('Error flagging parcel on contract:', error);
-      // Continue even if contract interaction fails
     }
 
-    // Send notifications
-    await this.notificationService.create({
+    await this.notificationService.createNotification({
       userId: parcel.ownerAddress,
       type: NotificationType.EXPROPRIATION_FLAGGED,
       title: 'Land Expropriation Notice',
-      message: `Your land parcel ${parcel.title} has been flagged for expropriation`,
+      content: `Your land parcel ${parcel.notes} has been flagged for expropriation`,
       data: {
         expropriationId: savedExpropriation.id,
         parcelId: dto.parcelId,
@@ -173,7 +164,6 @@ export class ExpropriationService {
   async findAll(filters: ExpropriationFilterDto): Promise<PaginatedResult<Expropriation>> {
     const query = this.expropriationRepository.createQueryBuilder('expropriation');
 
-    // Apply filters
     if (filters.parcelId) {
       query.andWhere('expropriation.parcelId = :parcelId', { parcelId: filters.parcelId });
     }
@@ -214,14 +204,11 @@ export class ExpropriationService {
       });
     }
 
-    // Add sorting
     query.orderBy(`expropriation.${filters.sortBy}`, filters.sortOrder);
 
-    // Add pagination
     const skip = (filters.page - 1) * filters.limit;
     query.skip(skip).take(filters.limit);
 
-    // Execute query
     const [expropriations, total] = await query.getManyAndCount();
 
     return {
@@ -264,7 +251,6 @@ export class ExpropriationService {
   async update(id: string, dto: UpdateExpropriationDto): Promise<Expropriation> {
     const expropriation = await this.findOne(id);
 
-    // Update expropriation
     Object.assign(expropriation, {
       ...dto,
       flaggedDate: dto.flaggedDate ? new Date(dto.flaggedDate) : expropriation.flaggedDate,
@@ -279,13 +265,12 @@ export class ExpropriationService {
 
     const updatedExpropriation = await this.expropriationRepository.save(expropriation);
 
-    // Send notifications for status changes
     if (dto.status && dto.status !== expropriation.status) {
-      await this.notificationService.create({
+      await this.notificationService.createNotification({
         userId: expropriation.currentOwnerAddress,
         type: NotificationType.EXPROPRIATION_STATUS_UPDATE,
         title: 'Expropriation Status Updated',
-        message: `The status of your land parcel has been updated`,
+        content: `The status of your land parcel has been updated`,
         data: {
           expropriationId: updatedExpropriation.id,
           parcelId: expropriation.parcelId,
@@ -306,16 +291,14 @@ export class ExpropriationService {
       );
     }
 
-    // Update expropriation record
     const updatedExpropriation = await this.update(id, {
       status: ExpropriationStatus.COMPENSATION_DEPOSITED,
       actualCompensation: dto.amount,
-      compensationDepositedDate: new Date(),
-      compensationTransactionHash: dto.transactionHash,
+      compensationDepositedDate: new Date().toISOString(),
+      completionTransactionHash: dto.transactionHash,
       notes: dto.notes,
     });
 
-    // Deposit compensation on smart contract
     try {
       const signer = new ethers.Wallet(
         this.configService.get<string>('PRIVATE_KEY'),
@@ -323,22 +306,20 @@ export class ExpropriationService {
       );
       const contractWithSigner = this.expropriationContract.connect(signer);
 
-      const tx = await contractWithSigner.depositCompensation(parseInt(expropriation.parcelId), {
+      const tx = await contractWithSigner['depositCompensation'](parseInt(expropriation.parcelId), {
         value: ethers.parseEther(dto.amount.toString()),
       });
 
       await tx.wait();
     } catch (error) {
       this.logger.error('Error depositing compensation on contract:', error);
-      // Continue even if contract interaction fails
     }
 
-    // Send notifications
-    await this.notificationService.create({
+    await this.notificationService.createNotification({
       userId: expropriation.currentOwnerAddress,
       type: NotificationType.COMPENSATION_DEPOSITED,
       title: 'Compensation Deposited',
-      message: `Compensation of ${dto.amount} RWF has been deposited for your land parcel`,
+      content: `Compensation of ${dto.amount} RWF has been deposited for your land parcel`,
       data: {
         expropriationId: expropriation.id,
         parcelId: expropriation.parcelId,
@@ -349,22 +330,17 @@ export class ExpropriationService {
     return updatedExpropriation;
   }
 
-  async claimCompensation(
-    id: string,
-    dto: ClaimCompensationDto,
-    claimerAddress: string,
-  ): Promise<Expropriation> {
+  async claimCompensation(id: string, dto: ClaimCompensationDto): Promise<Expropriation> {
     const expropriation = await this.findOne(id);
 
     if (expropriation.status !== ExpropriationStatus.COMPENSATION_DEPOSITED) {
-      throw new BadRequestException('Compensation must be deposited before it can be claimed');
+      throw new BadRequestException('Compensation can only be claimed when it has been deposited');
     }
 
-    if (expropriation.currentOwnerAddress !== claimerAddress) {
+    if (dto.claimerAddress.toLowerCase() !== expropriation.currentOwnerAddress.toLowerCase()) {
       throw new BadRequestException('Only the current owner can claim compensation');
     }
 
-    // Update expropriation record
     const updatedExpropriation = await this.update(id, {
       status: ExpropriationStatus.COMPENSATION_CLAIMED,
       compensationClaimedDate: new Date().toISOString(),
@@ -372,7 +348,6 @@ export class ExpropriationService {
       notes: dto.notes,
     });
 
-    // Claim compensation on smart contract
     try {
       const signer = new ethers.Wallet(
         this.configService.get<string>('PRIVATE_KEY'),
@@ -380,18 +355,16 @@ export class ExpropriationService {
       );
       const contractWithSigner = this.expropriationContract.connect(signer);
 
-      await contractWithSigner.claimCompensation(parseInt(expropriation.parcelId));
+      await contractWithSigner['claimCompensation'](parseInt(expropriation.parcelId));
     } catch (error) {
       this.logger.error('Error claiming compensation on contract:', error);
-      // Continue even if contract interaction fails
     }
 
-    // Send notifications
-    await this.notificationService.create({
+    await this.notificationService.createNotification({
       userId: expropriation.currentOwnerAddress,
       type: NotificationType.COMPENSATION_CLAIMED,
       title: 'Compensation Claimed',
-      message: `Compensation has been claimed for your land parcel`,
+      content: `Compensation has been claimed for your land parcel`,
       data: {
         expropriationId: expropriation.id,
         parcelId: expropriation.parcelId,
@@ -406,11 +379,10 @@ export class ExpropriationService {
 
     if (expropriation.status !== ExpropriationStatus.COMPENSATION_CLAIMED) {
       throw new BadRequestException(
-        'Compensation must be claimed before expropriation can be completed',
+        'Expropriation can only be completed after compensation is claimed',
       );
     }
 
-    // Update expropriation record
     const updatedExpropriation = await this.update(id, {
       status: ExpropriationStatus.COMPLETED,
       completedDate: new Date().toISOString(),
@@ -419,7 +391,6 @@ export class ExpropriationService {
       notes: dto.notes,
     });
 
-    // Transfer ownership on smart contract (if needed)
     try {
       const signer = new ethers.Wallet(
         this.configService.get<string>('PRIVATE_KEY'),
@@ -427,22 +398,20 @@ export class ExpropriationService {
       );
       const nftContractWithSigner = this.landParcelNFTContract.connect(signer);
 
-      await nftContractWithSigner.safeTransferFrom(
+      await nftContractWithSigner['safeTransferFrom'](
         expropriation.currentOwnerAddress,
         dto.newOwnerAddress,
         parseInt(expropriation.parcelId),
       );
     } catch (error) {
       this.logger.error('Error transferring ownership on contract:', error);
-      // Continue even if contract interaction fails
     }
 
-    // Send notifications
-    await this.notificationService.create({
+    await this.notificationService.createNotification({
       userId: expropriation.currentOwnerAddress,
       type: NotificationType.EXPROPRIATION_COMPLETED,
       title: 'Expropriation Completed',
-      message: `Your land parcel has been expropriated`,
+      content: `Your land parcel has been expropriated`,
       data: {
         expropriationId: updatedExpropriation.id,
         parcelId: expropriation.parcelId,
@@ -460,13 +429,11 @@ export class ExpropriationService {
       throw new BadRequestException('Cannot cancel completed expropriation');
     }
 
-    // Update expropriation record
     const updatedExpropriation = await this.update(id, {
       status: ExpropriationStatus.CANCELLED,
       cancellationReason: reason,
     });
 
-    // Cancel on smart contract
     try {
       const signer = new ethers.Wallet(
         this.configService.get<string>('PRIVATE_KEY'),
@@ -474,18 +441,16 @@ export class ExpropriationService {
       );
       const contractWithSigner = this.expropriationContract.connect(signer);
 
-      await contractWithSigner.cancelExpropriation(parseInt(expropriation.parcelId));
+      await contractWithSigner['cancelExpropriation'](parseInt(expropriation.parcelId));
     } catch (error) {
       this.logger.error('Error cancelling expropriation on contract:', error);
-      // Continue even if contract interaction fails
     }
 
-    // Send notifications
-    await this.notificationService.create({
+    await this.notificationService.createNotification({
       userId: expropriation.currentOwnerAddress,
       type: NotificationType.EXPROPRIATION_CANCELLED,
       title: 'Expropriation Cancelled',
-      message: `Your land parcel has been cancelled`,
+      content: `Your land parcel has been cancelled`,
       data: {
         expropriationId: updatedExpropriation.id,
         parcelId: expropriation.parcelId,
@@ -520,7 +485,6 @@ export class ExpropriationService {
     const completionRate =
       totalExpropriations > 0 ? (completedExpropriations / totalExpropriations) * 100 : 0;
 
-    // Calculate total compensation amounts
     const compensationStats = await this.expropriationRepository
       .createQueryBuilder('expropriation')
       .select('SUM(expropriation.proposedCompensation)', 'totalProposed')
@@ -530,7 +494,6 @@ export class ExpropriationService {
       .where('expropriation.status != :cancelled', { cancelled: ExpropriationStatus.CANCELLED })
       .getRawOne();
 
-    // Calculate average processing time
     const completedExpropriationsWithDates = await this.expropriationRepository
       .createQueryBuilder('expropriation')
       .where('expropriation.status = :status', { status: ExpropriationStatus.COMPLETED })
@@ -568,7 +531,6 @@ export class ExpropriationService {
     };
   }
 
-  // Smart contract interaction methods
   async getEscrowedFunds(tokenId: number): Promise<string> {
     try {
       const amount = await this.expropriationContract.getEscrowedFunds(tokenId);
@@ -624,7 +586,6 @@ export class ExpropriationService {
     return expropriation;
   }
 
-  // Document management methods
   async getExpropriationDocuments(id: string): Promise<any> {
     const expropriation = await this.findOne(id);
 
@@ -653,7 +614,6 @@ export class ExpropriationService {
     }
   }
 
-  // Reporting methods
   async getMonthlyReport(year?: number, month?: number): Promise<any> {
     const currentDate = new Date();
     const reportYear = year || currentDate.getFullYear();
@@ -676,7 +636,6 @@ export class ExpropriationService {
       averageCompensation: 0,
     };
 
-    // Group by status
     expropriations.forEach(exp => {
       summary.byStatus[exp.status] = (summary.byStatus[exp.status] || 0) + 1;
       if (exp.actualCompensation) {

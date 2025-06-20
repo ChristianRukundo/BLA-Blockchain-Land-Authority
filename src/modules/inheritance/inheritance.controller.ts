@@ -18,7 +18,7 @@ import { InheritanceService } from './inheritance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import {UserRole} from '../auth/enums/user-role.enum';
 import { InheritanceStatus } from './entities/inheritance.entity';
 import { RequestStatus } from './entities/inheritance-request.entity';
 import {

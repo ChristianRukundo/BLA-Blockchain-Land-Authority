@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+  ManyToOne, // Added
+} from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum ProposalStatus {
@@ -34,7 +42,7 @@ export class Proposal {
   id: string;
 
   @ApiProperty({ description: 'On-chain proposal ID' })
-  @Column()
+  @Column({ unique: true }) // Assuming on-chain proposal ID should be unique
   proposalId: string;
 
   @ApiProperty({ description: 'Proposal type', enum: ProposalType })
@@ -74,7 +82,7 @@ export class Proposal {
 
   @ApiProperty({ description: 'Values to send with calls' })
   @Column('simple-array')
-  values: string[];
+  values: string[]; // Typically ETH values, represented as strings for precision
 
   @ApiProperty({ description: 'Function signatures to call' })
   @Column('simple-array')
@@ -84,13 +92,11 @@ export class Proposal {
   @Column('simple-array')
   calldatas: string[];
 
-  @ApiProperty({ description: 'Proposal creation date' })
-  @Column('timestamp')
-  createdDate: Date;
+  // REMOVED: createdDate (redundant with createdAt from @CreateDateColumn)
 
   @ApiProperty({ description: 'Block number when created' })
-  @Column()
-  createdBlock: string;
+  @Column({ nullable: true }) // Made nullable as it might not be available immediately
+  createdBlock?: string;
 
   @ApiProperty({ description: 'Voting start date' })
   @Column('timestamp', { nullable: true })
@@ -108,27 +114,27 @@ export class Proposal {
   @Column({ nullable: true })
   votingEndBlock?: string;
 
-  @ApiProperty({ description: 'Votes for the proposal' })
+  @ApiProperty({ description: 'Votes for the proposal (sum of voting power)' })
   @Column('decimal', { precision: 78, scale: 0, default: '0' })
   votesFor: string;
 
-  @ApiProperty({ description: 'Votes against the proposal' })
+  @ApiProperty({ description: 'Votes against the proposal (sum of voting power)' })
   @Column('decimal', { precision: 78, scale: 0, default: '0' })
   votesAgainst: string;
 
-  @ApiProperty({ description: 'Abstain votes' })
+  @ApiProperty({ description: 'Abstain votes (sum of voting power)' })
   @Column('decimal', { precision: 78, scale: 0, default: '0' })
   votesAbstain: string;
 
-  @ApiProperty({ description: 'Total voting power at proposal creation' })
+  @ApiProperty({ description: 'Total voting power at proposal creation snapshot' })
   @Column('decimal', { precision: 78, scale: 0, default: '0' })
-  totalVotingPower: string;
+  totalVotingPower: string; // Snapshot of total eligible power when proposal became active
 
-  @ApiProperty({ description: 'Quorum required for proposal' })
+  @ApiProperty({ description: 'Quorum required for proposal (as voting power)' })
   @Column('decimal', { precision: 78, scale: 0 })
   quorumRequired: string;
 
-  @ApiProperty({ description: 'Voting threshold percentage' })
+  @ApiProperty({ description: 'Voting threshold percentage (e.g., 50.0 for >50%)' })
   @Column('decimal', { precision: 5, scale: 2, default: 50.0 })
   votingThreshold: number;
 
@@ -148,7 +154,7 @@ export class Proposal {
   @Column('int', { default: 172800 }) // 2 days
   timelockDelay: number;
 
-  @ApiProperty({ description: 'Earliest execution date' })
+  @ApiProperty({ description: 'Earliest execution date after queuing' })
   @Column('timestamp', { nullable: true })
   earliestExecutionDate?: Date;
 
@@ -160,7 +166,7 @@ export class Proposal {
   @Column({ nullable: true })
   executionTransactionHash?: string;
 
-  @ApiProperty({ description: 'Proposal expiration date' })
+  @ApiProperty({ description: 'Proposal expiration date (if applicable)' })
   @Column('timestamp', { nullable: true })
   expirationDate?: Date;
 
@@ -168,7 +174,7 @@ export class Proposal {
   @Column('text', { nullable: true })
   cancellationReason?: string;
 
-  @ApiProperty({ description: 'Additional metadata' })
+  @ApiProperty({ description: 'Additional metadata (e.g., on-chain results, executedBy)' })
   @Column('jsonb', { nullable: true })
   metadata?: any;
 
@@ -180,14 +186,17 @@ export class Proposal {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @OneToMany(() => Vote, vote => vote.proposal)
+  @ApiProperty({ type: () => [Vote], description: 'Votes cast on this proposal' })
+  @OneToMany(() => Vote, vote => vote.proposal, { cascade: ['insert', 'update'] }) // Added cascade for easier vote saving
   votes: Vote[];
 
   // Computed properties
   get canVote(): boolean {
-    return this.status === ProposalStatus.ACTIVE && 
-           this.votingEndDate && 
-           new Date(this.votingEndDate) > new Date();
+    return (
+      this.status === ProposalStatus.ACTIVE &&
+      this.votingEndDate &&
+      new Date(this.votingEndDate) > new Date()
+    );
   }
 
   get canQueue(): boolean {
@@ -195,40 +204,45 @@ export class Proposal {
   }
 
   get canExecute(): boolean {
-    return this.status === ProposalStatus.QUEUED && 
-           this.earliestExecutionDate && 
-           new Date(this.earliestExecutionDate) <= new Date() &&
-           !this.executionTransactionHash;
+    return (
+      this.status === ProposalStatus.QUEUED &&
+      this.earliestExecutionDate &&
+      new Date(this.earliestExecutionDate) <= new Date() &&
+      !this.executionTransactionHash
+    );
   }
 
   get participationRate(): number {
-    const totalVotes = parseFloat(this.votesFor) + 
-                      parseFloat(this.votesAgainst) + 
-                      parseFloat(this.votesAbstain);
-    const totalPower = parseFloat(this.totalVotingPower);
-    return totalPower > 0 ? (totalVotes / totalPower) * 100 : 0;
+    const totalVotesCasted =
+      BigInt(this.votesFor) + BigInt(this.votesAgainst) + BigInt(this.votesAbstain);
+    const totalEligiblePower = BigInt(this.totalVotingPower); // Snapshot power
+    if (totalEligiblePower === BigInt(0)) return 0;
+    return (Number(totalVotesCasted) / Number(totalEligiblePower)) * 100;
   }
 
   get approvalRate(): number {
-    const forVotes = parseFloat(this.votesFor);
-    const totalVotes = parseFloat(this.votesFor) + 
-                      parseFloat(this.votesAgainst) + 
-                      parseFloat(this.votesAbstain);
-    return totalVotes > 0 ? (forVotes / totalVotes) * 100 : 0;
+    // Percentage of "FOR" votes among non-abstain votes
+    const forVotes = BigInt(this.votesFor);
+    const againstVotes = BigInt(this.votesAgainst);
+    const totalEffectiveVotes = forVotes + againstVotes;
+    if (totalEffectiveVotes === BigInt(0)) return 0;
+    return (Number(forVotes) / Number(totalEffectiveVotes)) * 100;
   }
 
   get daysUntilVotingEnd(): number {
-    if (!this.votingEndDate) return -1;
+    if (!this.votingEndDate || this.status !== ProposalStatus.ACTIVE) return -1;
     const now = new Date();
     const endDate = new Date(this.votingEndDate);
+    if (endDate <= now) return 0;
     const diffTime = endDate.getTime() - now.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
   get daysUntilExecution(): number {
-    if (!this.earliestExecutionDate) return -1;
+    if (!this.earliestExecutionDate || this.status !== ProposalStatus.QUEUED) return -1;
     const now = new Date();
     const execDate = new Date(this.earliestExecutionDate);
+    if (execDate <= now) return 0;
     const diffTime = execDate.getTime() - now.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
@@ -240,8 +254,12 @@ export class Vote {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ description: 'Proposal ID' })
-  @Column()
+  // No need for proposalId as a separate column if using ManyToOne correctly,
+  // TypeORM will create proposal_id or similar.
+  // We keep it if we want to query by proposalId without joining often, but it's redundant.
+  // For this example, let's keep it for direct querying, but ensure it's consistent.
+  @ApiProperty({ description: 'ID of the proposal this vote belongs to' })
+  @Column('uuid')
   proposalId: string;
 
   @ApiProperty({ description: 'Voter wallet address' })
@@ -255,7 +273,7 @@ export class Vote {
   })
   choice: VoteChoice;
 
-  @ApiProperty({ description: 'Voting power used' })
+  @ApiProperty({ description: 'Voting power used for this vote' })
   @Column('decimal', { precision: 78, scale: 0 })
   votingPower: string;
 
@@ -267,11 +285,11 @@ export class Vote {
   @Column()
   blockNumber: string;
 
-  @ApiProperty({ description: 'Transaction hash' })
+  @ApiProperty({ description: 'Transaction hash of the vote' })
   @Column()
   transactionHash: string;
 
-  @ApiProperty({ description: 'Vote reason' })
+  @ApiProperty({ description: 'Reason provided by the voter (optional)' })
   @Column('text', { nullable: true })
   reason?: string;
 
@@ -283,7 +301,7 @@ export class Vote {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @ApiProperty({ type: () => Proposal })
+  @ApiProperty({ type: () => Proposal, description: 'The proposal this vote is for' })
+  @ManyToOne(() => Proposal, proposal => proposal.votes, { onDelete: 'CASCADE' }) // Added onDelete for data integrity
   proposal: Proposal;
 }
-

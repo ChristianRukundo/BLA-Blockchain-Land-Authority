@@ -5,13 +5,11 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   HttpStatus,
   HttpException,
   ParseUUIDPipe,
-  ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { GovernanceService } from './governance.service';
@@ -19,7 +17,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../auth/enums/user-role.enum';
-import { ProposalType, ProposalStatus } from './entities/proposal.entity';
+import { ProposalStatus } from './entities/proposal.entity';
+
+
 import {
   CreateProposalDto,
   UpdateProposalDto,
@@ -28,6 +28,11 @@ import {
   ProposalListResponseDto,
   ProposalStatisticsDto,
   GovernanceStatisticsDto,
+  CancelProposalDto,
+  ProposalResponseDto,
+  ProposalFilterDto,
+  VotingPowerResponseDto,
+  ProposalVotesResponseDto,
 } from './dto/governance.dto';
 
 @ApiTags('governance')
@@ -39,165 +44,203 @@ export class GovernanceController {
 
   @Post('proposals')
   @ApiOperation({ summary: 'Create a new governance proposal' })
-  @ApiResponse({ status: 201, description: 'Governance proposal created successfully' })
-  async createProposal(@Body() createProposalDto: CreateProposalDto) {
+  @ApiResponse({
+    status: 201,
+    description: 'Governance proposal created successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request (e.g., validation error, on-chain creation failed)',
+  })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.PROPOSER)
+  async createProposal(@Body() createProposalDto: CreateProposalDto): Promise<ProposalResponseDto> {
     try {
       return await this.governanceService.createProposal(createProposalDto);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
-        `Failed to create governance proposal: ${(error as any).message}`,
+        `Failed to create governance proposal: ${(error as Error).message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
   }
 
   @Get('proposals')
-  @ApiOperation({ summary: 'Get all governance proposals with filtering' })
-  @ApiResponse({ status: 200, description: 'Governance proposals retrieved successfully', type: ProposalListResponseDto })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
-  @ApiQuery({ name: 'proposalType', required: false, enum: ProposalType, description: 'Filter by proposal type' })
-  @ApiQuery({ name: 'status', required: false, enum: ProposalStatus, description: 'Filter by proposal status' })
-  @ApiQuery({ name: 'proposer', required: false, type: String, description: 'Filter by proposer address' })
-  async findAllProposals(
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
-    @Query('proposalType') proposalType?: ProposalType,
-    @Query('status') status?: ProposalStatus,
-    @Query('proposer') proposer?: string,
-  ) {
+  @ApiOperation({ summary: 'Get all governance proposals with filtering and pagination' })
+  @ApiResponse({
+    status: 200,
+    description: 'Governance proposals retrieved successfully',
+    type: ProposalListResponseDto,
+  })
+  async findAllProposals(@Query() filterDto: ProposalFilterDto): Promise<ProposalListResponseDto> {
     try {
-      return await this.governanceService.findAll(page, limit, proposalType, status, proposer);
+      return await this.governanceService.findAll(filterDto);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
-        `Failed to retrieve governance proposals: ${(error as any).message}`,
+        `Failed to retrieve governance proposals: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Get('proposals/:id')
-  @ApiOperation({ summary: 'Get a governance proposal by ID' })
-  @ApiResponse({ status: 200, description: 'Governance proposal retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Governance proposal not found' })
-  async findProposalById(@Param('id', ParseUUIDPipe) id: string) {
-    try {
-      return await this.governanceService.findOne(id);
-    } catch (error) {
-      throw new HttpException(
-        `Failed to retrieve governance proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  @ApiOperation({ summary: 'Get a specific governance proposal by its database ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Governance proposal retrieved successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Governance proposal not found (by DB ID)' })
+  async findProposalById(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ProposalResponseDto> {
+    const proposal = await this.governanceService.findOne(id);
+    return this.governanceService.mapToResponseDto(proposal);
   }
 
   @Get('proposals/on-chain/:onChainId')
-  @ApiOperation({ summary: 'Get a governance proposal by on-chain ID' })
-  @ApiResponse({ status: 200, description: 'Governance proposal retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Governance proposal not found' })
-  async findProposalByOnChainId(@Param('onChainId') onChainId: string) {
+  @ApiOperation({ summary: 'Get a governance proposal by its on-chain ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Governance proposal retrieved successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Governance proposal not found (by OnChain ID)' })
+  async findProposalByOnChainId(
+    @Param('onChainId') onChainId: string,
+  ): Promise<ProposalResponseDto> {
     try {
       const proposal = await this.governanceService.findByOnChainId(onChainId);
       if (!proposal) {
-        throw new HttpException('Governance proposal not found', HttpStatus.NOT_FOUND);
+        throw new HttpException(
+          'Governance proposal not found for the given on-chain ID',
+          HttpStatus.NOT_FOUND,
+        );
       }
-      return proposal;
+      return this.governanceService.mapToResponseDto(proposal);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
-        `Failed to retrieve governance proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to retrieve governance proposal by on-chain ID: ${(error as Error).message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Patch('proposals/:id')
-  @ApiOperation({ summary: 'Update a governance proposal' })
-  @ApiResponse({ status: 200, description: 'Governance proposal updated successfully' })
+  @ApiOperation({
+    summary:
+      'Update a governance proposal (limited fields, e.g., title, description if status allows)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Governance proposal updated successfully',
+    type: ProposalResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Governance proposal not found' })
+  @ApiResponse({ status: 400, description: 'Bad Request (e.g., proposal not in updatable state)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
   async updateProposal(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() updateProposalDto: UpdateProposalDto,
-  ) {
-    try {
-      return await this.governanceService.update(id, updateProposalDto);
-    } catch (error) {
-      throw new HttpException(
-        `Failed to update governance proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  ): Promise<ProposalResponseDto> {
+    return await this.governanceService.update(id, updateProposalDto);
   }
 
   @Post('proposals/:id/vote')
-  @ApiOperation({ summary: 'Vote on a governance proposal' })
-  @ApiResponse({ status: 200, description: 'Vote recorded successfully' })
+  @ApiOperation({ summary: 'Vote on an active governance proposal' })
+  @ApiResponse({
+    status: 200,
+    description: 'Vote recorded successfully',
+    type: ProposalResponseDto,
+  })
   @ApiResponse({ status: 404, description: 'Governance proposal not found' })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request (e.g., not active, already voted, voting ended, insufficient power)',
+  })
   async voteOnProposal(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() voteDto: VoteOnProposalDto,
-  ) {
-    try {
-      return await this.governanceService.vote(id, voteDto);
-    } catch (error) {
-      throw new HttpException(
-        `Failed to vote on proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  ): Promise<ProposalResponseDto> {
+    return await this.governanceService.vote(id, voteDto);
+  }
+
+  @Post('proposals/:id/queue')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.DAO_EXECUTOR)
+  @ApiOperation({ summary: 'Queue a succeeded governance proposal for execution (after timelock)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Proposal queued successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Proposal not found' })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request (e.g., proposal not succeeded or already queued)',
+  })
+  async queueProposal(@Param('id', new ParseUUIDPipe()) id: string): Promise<ProposalResponseDto> {
+    return await this.governanceService.queue(id);
   }
 
   @Post('proposals/:id/execute')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.DAO_EXECUTOR)
-  @ApiOperation({ summary: 'Execute a governance proposal' })
-  @ApiResponse({ status: 200, description: 'Proposal executed successfully' })
-  @ApiResponse({ status: 404, description: 'Governance proposal not found' })
+  @ApiOperation({ summary: 'Execute a queued governance proposal (after timelock delay)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Proposal execution initiated successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Proposal not found' })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request (e.g., not executable, timelock not passed, already executed)',
+  })
   async executeProposal(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() executeDto: ExecuteProposalDto,
-  ) {
-    try {
-      return await this.governanceService.execute(id, executeDto);
-    } catch (error) {
-      throw new HttpException(
-        `Failed to execute proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  ): Promise<ProposalResponseDto> {
+    return await this.governanceService.execute(id, executeDto);
   }
 
   @Post('proposals/:id/cancel')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Cancel a governance proposal' })
-  @ApiResponse({ status: 200, description: 'Proposal cancelled successfully' })
-  @ApiResponse({ status: 404, description: 'Governance proposal not found' })
+  @ApiOperation({ summary: 'Cancel a governance proposal (if allowed by status and rules)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Proposal cancelled successfully',
+    type: ProposalResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Proposal not found' })
+  @ApiResponse({ status: 400, description: 'Bad Request (e.g., proposal not cancellable)' })
   async cancelProposal(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() cancelData: { cancelledBy: string; reason: string },
-  ) {
-    try {
-      return await this.governanceService.cancel(id, cancelData.cancelledBy, cancelData.reason);
-    } catch (error) {
-      throw new HttpException(
-        `Failed to cancel proposal: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() cancelDto: CancelProposalDto,
+  ): Promise<ProposalResponseDto> {
+    return await this.governanceService.cancel(id, cancelDto);
   }
 
-  @Post('proposals/update-status')
+  @Post('proposals/update-statuses')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SYSTEM)
-  @ApiOperation({ summary: 'Update proposal statuses (system operation)' })
-  @ApiResponse({ status: 200, description: 'Proposal statuses updated successfully' })
-  async updateProposalStatuses() {
+  @ApiOperation({
+    summary: 'Trigger system update of proposal statuses (e.g., Active to Succeeded/Defeated)',
+  })
+  @ApiResponse({ status: 200, description: 'Proposal statuses update process reported' })
+  async updateProposalStatuses(): Promise<{ updated: number; message: string }> {
     try {
-      await this.governanceService.updateProposalStatus();
-      return { message: 'Proposal statuses updated successfully' };
+      const result = await this.governanceService.updateProposalStatuses();
+      return { message: result.message, updated: result.updated };
     } catch (error) {
       throw new HttpException(
-        `Failed to update proposal statuses: ${(error as any).message}`,
+        `Failed to trigger proposal status updates: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -205,108 +248,148 @@ export class GovernanceController {
 
   @Get('statistics/proposals')
   @ApiOperation({ summary: 'Get governance proposal statistics' })
-  @ApiResponse({ status: 200, description: 'Proposal statistics retrieved successfully', type: ProposalStatisticsDto })
-  async getProposalStatistics() {
+  @ApiResponse({
+    status: 200,
+    description: 'Proposal statistics retrieved',
+    type: ProposalStatisticsDto,
+  })
+  async getProposalStatistics(): Promise<ProposalStatisticsDto> {
     try {
       return await this.governanceService.getProposalStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get proposal statistics: ${(error as any).message}`,
+        `Failed to get proposal statistics: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Get('statistics/governance')
-  @ApiOperation({ summary: 'Get comprehensive governance statistics' })
-  @ApiResponse({ status: 200, description: 'Governance statistics retrieved successfully', type: GovernanceStatisticsDto })
-  async getGovernanceStatistics() {
+  @ApiOperation({ summary: 'Get comprehensive DAO governance statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Governance statistics retrieved',
+    type: GovernanceStatisticsDto,
+  })
+  async getGovernanceStatistics(): Promise<GovernanceStatisticsDto> {
     try {
       return await this.governanceService.getGovernanceStatistics();
     } catch (error) {
       throw new HttpException(
-        `Failed to get governance statistics: ${(error as any).message}`,
+        `Failed to get governance statistics: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Get('proposals/:id/voting-power/:address')
-  @ApiOperation({ summary: 'Get voting power for an address on a specific proposal' })
-  @ApiResponse({ status: 200, description: 'Voting power retrieved successfully' })
+  @ApiOperation({
+    summary: 'Get voting power for an address on a specific proposal and check if voted',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Voting power and status retrieved',
+    type: VotingPowerResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Proposal not found' })
   async getVotingPower(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Param('address') address: string,
-  ) {
+  ): Promise<VotingPowerResponseDto> {
+    return await this.governanceService.getVotingPower(id, address);
+  }
+
+  @Get('proposals/:id/votes')
+  @ApiOperation({ summary: 'Get all votes cast for a specific proposal' })
+  @ApiResponse({
+    status: 200,
+    description: 'Proposal votes retrieved successfully',
+    type: ProposalVotesResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Proposal not found' })
+  async getProposalVotes(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ProposalVotesResponseDto> {
     try {
-      // This would typically call the blockchain service to get voting power
-      // For now, we'll return a placeholder
+      const proposal = await this.governanceService.findOne(id);
+
+      const totalVotesCastedBigInt =
+        BigInt(proposal.votesFor) + BigInt(proposal.votesAgainst) + BigInt(proposal.votesAbstain);
+
       return {
-        proposalId: id,
-        address,
-        votingPower: 0,
-        hasVoted: false,
+        proposalId: proposal.id,
+        onChainProposalId: proposal.proposalId,
+        totalVotesCasted: totalVotesCastedBigInt.toString(),
+        forVotesPower: proposal.votesFor,
+        againstVotesPower: proposal.votesAgainst,
+        abstainVotesPower: proposal.votesAbstain,
+        votes: proposal.votes.map(vote => ({
+          voter: vote.voter,
+          choice: vote.choice,
+          votingPower: vote.votingPower,
+          reason: vote.reason,
+          timestamp: vote.voteDate,
+        })),
+        voteCount: proposal.votes.length,
+        quorumRequired: proposal.quorumRequired,
+        quorumReached: proposal.quorumReached,
+        thresholdReached: proposal.thresholdReached,
+        votingThresholdPercent: proposal.votingThreshold,
       };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
-        `Failed to get voting power: ${(error as any).message}`,
+        `Failed to get proposal votes: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  @Get('proposals/:id/votes')
-  @ApiOperation({ summary: 'Get all votes for a proposal' })
-  @ApiResponse({ status: 200, description: 'Proposal votes retrieved successfully' })
-  async getProposalVotes(@Param('id', ParseUUIDPipe) id: string) {
-    try {
-      const proposal = await this.governanceService.findOne(id);
-      
-      return {
-        proposalId: id,
-        totalVotes: proposal.forVotes + proposal.againstVotes + proposal.abstainVotes,
-        forVotes: proposal.forVotes,
-        againstVotes: proposal.againstVotes,
-        abstainVotes: proposal.abstainVotes,
-        voters: proposal.voters,
-        quorumRequired: proposal.quorumRequired,
-        quorumMet: (proposal.forVotes + proposal.againstVotes + proposal.abstainVotes) >= (proposal.quorumRequired || 0),
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Failed to get proposal votes: ${(error as any).message}`,
-        (error as any).status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   @Get('active-proposals')
-  @ApiOperation({ summary: 'Get all active governance proposals' })
-  @ApiResponse({ status: 200, description: 'Active proposals retrieved successfully' })
-  async getActiveProposals() {
+  @ApiOperation({ summary: 'Get all active governance proposals (paginated)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Active proposals retrieved',
+    type: ProposalListResponseDto,
+  })
+  async getActiveProposals(
+    @Query() filterDto: ProposalFilterDto,
+  ): Promise<ProposalListResponseDto> {
     try {
-      return await this.governanceService.findAll(1, 100, undefined, ProposalStatus.ACTIVE);
+      const activeFilter: ProposalFilterDto = {
+        ...filterDto,
+        status: ProposalStatus.ACTIVE,
+        limit: filterDto.limit || 100,
+      };
+      return await this.governanceService.findAll(activeFilter);
     } catch (error) {
       throw new HttpException(
-        `Failed to get active proposals: ${(error as any).message}`,
+        `Failed to get active proposals: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Get('user/:address/proposals')
-  @ApiOperation({ summary: 'Get proposals created by a specific user' })
-  @ApiResponse({ status: 200, description: 'User proposals retrieved successfully' })
+  @ApiOperation({ summary: 'Get proposals created by a specific user (paginated)' })
+  @ApiResponse({
+    status: 200,
+    description: 'User proposals retrieved',
+    type: ProposalListResponseDto,
+  })
   async getUserProposals(
     @Param('address') address: string,
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
-  ) {
+    @Query() filterDto: ProposalFilterDto,
+  ): Promise<ProposalListResponseDto> {
     try {
-      return await this.governanceService.findAll(page, limit, undefined, undefined, address);
+      const userProposalsFilter: ProposalFilterDto = {
+        ...filterDto,
+        proposer: address,
+      };
+      return await this.governanceService.findAll(userProposalsFilter);
     } catch (error) {
       throw new HttpException(
-        `Failed to get user proposals: ${(error as any).message}`,
+        `Failed to get user proposals for address ${address}: ${(error as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
