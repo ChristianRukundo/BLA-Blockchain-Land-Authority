@@ -211,7 +211,7 @@ export class LandParcel {
 
   // Virtual properties for computed values
   get coordinates(): [number, number] | null {
-    if (this.location && this.location.coordinates) {
+    if (this.location?.coordinates) {
       return [this.location.coordinates[0], this.location.coordinates[1]];
     }
     return null;

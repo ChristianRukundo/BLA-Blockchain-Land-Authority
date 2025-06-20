@@ -247,6 +247,9 @@ export class DepositCompensationDto {
 }
 
 export class ClaimCompensationDto {
+  @ApiProperty({ description: 'Address of the claimer' })
+  @IsString()
+  claimerAddress: string;
   @ApiProperty({ description: 'Transaction hash of the claim' })
   @IsString()
   transactionHash: string;
