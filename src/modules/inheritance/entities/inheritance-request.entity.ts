@@ -19,6 +19,7 @@ export enum RequestStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   DISPUTED = 'DISPUTED',
+  APPROVED = 'APPROVED'
 }
 
 export enum VerificationSource {
@@ -79,9 +80,9 @@ export class InheritanceRequest {
   @Column({ type: 'enum', enum: VerificationSource, nullable: true })
   verificationSource: VerificationSource;
 
-  @ApiProperty({ description: 'Death certificate number or reference' })
+  @ApiProperty({ description: 'Death certificate hash' })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  deathCertificateRef: string;
+  deathCertificateHash: string;
 
   @ApiProperty({ description: 'Date of death as verified' })
   @Column({ type: 'date', nullable: true })

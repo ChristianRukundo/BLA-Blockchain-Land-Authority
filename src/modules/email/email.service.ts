@@ -124,14 +124,14 @@ export class EmailService {
       const enrichedContext = {
         ...context,
         appUrl: this.configService.get('email.appUrl'),
-        logoUrl: this.configService.get('email.logoUrl') || 'https://rwalandchain.com/logo.png',
-        supportEmail: this.configService.get('email.supportEmail') || 'support@rwalandchain.com',
+        logoUrl: this.configService.get('email.logoUrl') ?? 'https://rwalandchain.com/logo.png',
+        supportEmail: this.configService.get('email.supportEmail') ?? 'support@rwalandchain.com',
         currentYear: new Date().getFullYear(),
       };
 
       const templateFn = this.templates.get(template);
       if (!templateFn) {
-        const html = this.generateBasicTemplate(subject, context.message || 'No message provided');
+        const html = this.generateBasicTemplate(subject, context.message ?? 'No message provided');
 
         await this.transporter.sendMail({
           from: this.configService.get('email.from'),
@@ -158,7 +158,9 @@ export class EmailService {
       this.logger.error(`Failed to send email to ${to}:`, error);
       throw error;
     }
-  }  
+  }
+
+  
 
   private generateBasicTemplate(subject: string, message: string): string {
     return `
